@@ -18,7 +18,7 @@ class BatchRequest
 
     public function handle(Request $request = null): JsonResponse
     {
-        $this->includeHeaders = $request->query->has('include_headers') && $request->query->get('include_headers') === 'true';
+        $this->includeHeaders = !$request->query->has('include_headers') || $request->query->get('include_headers') === 'true';
         $request = null === $request ? Request::capture() : $request;
 
         return $this->parseRequest($request);
