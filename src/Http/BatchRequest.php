@@ -5,15 +5,11 @@ namespace Lemric\BatchRequest\Http;
 use Exception;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Support\Str;
 use JsonException;
-use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use function count;
 use function is_array;
 use function is_string;
-use const ARRAY_FILTER_USE_KEY;
 use const JSON_THROW_ON_ERROR;
 
 class BatchRequest
@@ -22,7 +18,7 @@ class BatchRequest
 
     public function handle(Request $request = null): JsonResponse
     {
-        $this->includeHeaders = !$request->query->has('include_headers') || $request->query->get('include_headers') !== 'false';
+        $this->includeHeaders = $request->query->has('include_headers') && $request->query->get('include_headers') === 'true';
         $request = null === $request ? Request::capture() : $request;
 
         return $this->parseRequest($request);
@@ -31,7 +27,7 @@ class BatchRequest
     private function parseRequest(Request $request): JsonResponse
     {
         try {
-            $transactions = $this->getTransactions($request);
+            $responseList = $this->getTransactions($request);
         } catch (HttpException $e) {
             return new JsonResponse([
                 'result' => 'error',
@@ -48,10 +44,10 @@ class BatchRequest
                 'errors' => [
                     ['message' => $e->getMessage(), 'type' => 'system_error'],
                 ],
-            ], SymfonyResponse::HTTP_INTERNAL_SERVER_ERROR);
+            ], 500);
         }
 
-        return $this->getBatchRequestResponse($transactions);
+        return $this->getBatchRequestResponse($responseList);
     }
 
     /**
@@ -59,12 +55,18 @@ class BatchRequest
      */
     private function getTransactions(Request $request): array
     {
-        if (!empty($request->getContent())) {
-            $requests = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
-        } elseif (is_string($request->get('data'))) {
-            $requests = json_decode($request->get('data'), true, 512, JSON_THROW_ON_ERROR);
-        } else {
-            $requests = $request->get('data');
+        try {
+            if($request->has('batch')) {
+                $requests = json_decode($request->get('batch'), true, 512, JSON_THROW_ON_ERROR);
+            } else if (!empty($request->getContent())) {
+                $requests = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            } elseif (is_string($request->get('data'))) {
+                $requests = json_decode($request->get('data'), true, 512, JSON_THROW_ON_ERROR);
+            } else {
+                $requests = $request->get('data');
+            }
+        } catch (JsonException $ignore) {
+            throw new HttpException(400, 'Invalid request');
         }
         if (!is_array($requests)) {
             throw new HttpException(400, 'Invalid request');
@@ -84,33 +86,26 @@ class BatchRequest
                 $server,
                 json_encode($parameters, JSON_THROW_ON_ERROR)
             );
+            $newRequest->headers->replace( $request->headers->all());
 
-            $newRequest->headers->set('Authorization', $request->headers->get('Authorization'));
-
-            return (new Transaction())->setRequest($newRequest);
+            return $newRequest;
         }, $requests);
     }
 
-    private function getBatchRequestResponse(array $transactions): JsonResponse
+    private function getBatchRequestResponse(array $responseList): JsonResponse
     {
-        return $this->generateBatchResponseFromSubResponses(array_map(function ($transaction) {
-            try {
-                $transaction->response = app()->handle($transaction->request);
-            } catch (Exception $ignored) {
-            }
-
-            return $transaction;
-        }, $transactions));
+        return $this->generateBatchResponseFromSubResponses(array_map(function ($request) {
+            return app()->handle($request);
+        }, $responseList));
     }
 
-    private function generateBatchResponseFromSubResponses(array $transactions): JsonResponse
+    private function generateBatchResponseFromSubResponses(array $responseList): JsonResponse
     {
         $response = new JsonResponse();
         $response->headers->set('Content-Type', 'application/json');
-
         $contentForSubResponses = [];
-        foreach ($transactions as $key => $transaction) {
-            $transaction->response->headers->set('X-Request-Uri', $transaction->request->getRequestUri());
+        foreach ($responseList as $key => $response) {
+
             $headers = array_map(static function ($item) {
                 $item = is_array($item) ? end($item) : $item;
                 if ('false' === $item) {
@@ -120,17 +115,11 @@ class BatchRequest
                 }
 
                 return $item;
-            }, $transaction->response->headers->all());
+            }, $response->headers->all());
 
-            $headers = array_filter($headers, static function ($item) {
-                return Str::startsWith($item, 'x-debug-token')
-                    || Str::startsWith($item, 'x-')
-                    || 'content-type' === $item
-                    || 'date' === $item;
-            }, ARRAY_FILTER_USE_KEY);
             $headers['content-type'] ??= 'application/json';
 
-            $content = $transaction->response->getContent();
+            $content = $response->getContent();
             if ('application/json' === $headers['content-type']) {
                 try {
                     $content = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
@@ -139,7 +128,7 @@ class BatchRequest
                 }
             }
             $contentForSubResponses[$key] = [
-                'code' => $transaction->response->getStatusCode(),
+                'code' => $response->getStatusCode(),
                 'body' => $content,
             ];
 
