@@ -3,8 +3,10 @@
 Install from composer :
 ```
 composer require lemric/batch-request
-We make this package with Auto Discovery, but you can add manual :
 ```
+
+We make this package with Auto Discovery, but you can add manual :
+
 # service provider :
 Lemric\BatchRequest\BatchServiceProvider::class
 
