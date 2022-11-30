@@ -18,8 +18,11 @@ use const JSON_THROW_ON_ERROR;
 
 class BatchRequest
 {
+    private bool $includeHeaders = false;
+
     public function handle(Request $request = null): JsonResponse
     {
+        $this->includeHeaders = $request->query->has('include_headers') && $request->query->get('include_headers') === 'true';
         $request = null === $request ? Request::capture() : $request;
 
         return $this->parseRequest($request);
@@ -107,7 +110,7 @@ class BatchRequest
 
         $contentForSubResponses = [];
         foreach ($transactions as $key => $transaction) {
-            $transaction->response->headers->set('X-BrandOriented-Request-Uri', $transaction->request->getRequestUri());
+            $transaction->response->headers->set('X-Request-Uri', $transaction->request->getRequestUri());
             $headers = array_map(static function ($item) {
                 $item = is_array($item) ? end($item) : $item;
                 if ('false' === $item) {
@@ -121,7 +124,7 @@ class BatchRequest
 
             $headers = array_filter($headers, static function ($item) {
                 return Str::startsWith($item, 'x-debug-token')
-                    || Str::startsWith($item, 'x-brandoriented')
+                    || Str::startsWith($item, 'x-')
                     || 'content-type' === $item
                     || 'date' === $item;
             }, ARRAY_FILTER_USE_KEY);
@@ -139,6 +142,10 @@ class BatchRequest
                 'code' => $transaction->response->getStatusCode(),
                 'body' => $content,
             ];
+
+            if ($this->includeHeaders === true) {
+                $contentForSubResponses[$key]['headers'] = $headers;
+            }
         }
         $response->setContent(json_encode($contentForSubResponses));
 
