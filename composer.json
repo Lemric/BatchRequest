@@ -1,0 +1,17 @@
+{
+  "name": "lemric/batch-request",
+  "authors": [
+    {
+      "name": "Dominik Labudzinski",
+      "email": "dominik@labudzinski.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Lemric\\BatchRequest\\": "src/"
+    }
+  },
+  "require": {
+    "laravel/laravel": "^9.3"
+  }
+}
