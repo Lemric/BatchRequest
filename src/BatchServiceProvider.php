@@ -11,7 +11,7 @@ class BatchServiceProvider extends ServiceProvider
 {
     public function boot(): void
     {
-        Route::post('batch.request', function (Request $request) {
+        Route::post('/batch', function (Request $request) {
             return (new BatchRequest())->handle($request);
         });
     }
