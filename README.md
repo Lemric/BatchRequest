@@ -31,16 +31,22 @@ REQUEST:
 ```
 
 ```json
-RESPONSE:
+RESPONSE
 [
-    {
-        "code": 200,
-        "body": []
-    },
-    {
-        "code": 200,
-        "body": []
-    }
+  {
+    "code": 200,
+    "body": "{
+    \"name\": \"Test\",
+    \"id\": \"1\"
+  }"
+  },
+  {
+    "code": 200,
+    "body": "{
+    \"name\": \"Test\",
+    \"id\": \"2\"
+  }"
+  }
 ]
 ```
 
