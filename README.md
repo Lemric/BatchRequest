@@ -28,9 +28,9 @@ In this example, we will get information about two Pages that our application ma
 Formatted for readability.
 
 ```
-curl -X POST /batch
-   -H 'Content-Type: application/json'
-   -d '{"batch": [
+curl -X POST --location 'http://localhost:8282/batch'
+   --header 'Content-Type: application/json'
+   --data '[
        {
           "method":"GET",
           "relative_url":"url"
@@ -40,8 +40,7 @@ curl -X POST /batch
           "relative_url":"url",
         }
    ], 
-    "include_headers": true
-   }'
+    "include_headers": true'
 ```
 
 Once all operations are completed, a response is sent with the result of each operation.
@@ -82,8 +81,8 @@ The body should be formatted as a raw HTTP POST string, similar to a URL query s
 The following example deletes an object and then creates the new object in a single operation:
 ```
 curl -X POST /batch
-   -H 'Content-Type: application/json'
-   -d '{"batch": [
+   --header 'Content-Type: application/json'
+   --data '[
        {
           "method":"DELETE",
           "relative_url":"url/{id}"
@@ -94,8 +93,7 @@ curl -X POST /batch
           "body": {"id": "1", "message": "First post!"}
         }
    ], 
-    "include_headers": false
-   }'
+    "include_headers": false'
 ```
 
 ### Errors
