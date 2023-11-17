@@ -48,7 +48,10 @@ final class BatchRequest
         $this->includeHeaders = (
             ($request->request->has('include_headers')
                 && 'false' != $request->request->has('include_headers'))
-            || 'true' === $request->request->get('include_headers')
+            || 'true' === $request->request->get('include_headers') ||
+            ($request->query->has('include_headers')
+                && 'false' != $request->query->has('include_headers'))
+            || 'true' === $request->query->get('include_headers')
         );
 
         return $this->parseRequest($request);
