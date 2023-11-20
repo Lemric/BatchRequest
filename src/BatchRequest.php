@@ -206,7 +206,7 @@ final class BatchRequest
                 cookies: $request->cookies->all(),
                 files: $files,
                 server: $server,
-                content: $batchedRequest['body'] ?? null,
+                content: $parameters === [] ? $batchedRequest['body'] ?? [] : $parameters,
             );
             if ($request->hasSession()) {
                 $newRequest->setSession($request->getSession());
