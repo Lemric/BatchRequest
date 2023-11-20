@@ -37,7 +37,7 @@ use Symfony\Component\HttpKernel\{HttpKernelInterface};
 
 final class BatchRequest
 {
-    private bool $includeHeaders = true;
+    private bool $includeHeaders = false;
 
     public function __construct(private readonly HttpKernelInterface $httpKernel)
     {
@@ -48,8 +48,8 @@ final class BatchRequest
         $this->includeHeaders = (
             ($request->request->has('include_headers')
                 && 'false' != $request->request->has('include_headers'))
-            || 'true' === $request->request->get('include_headers') ||
-            ($request->query->has('include_headers')
+            || 'true' === $request->request->get('include_headers')
+            || ($request->query->has('include_headers')
                 && 'false' != $request->query->has('include_headers'))
             || 'true' === $request->query->get('include_headers')
         );
@@ -89,7 +89,7 @@ final class BatchRequest
                 }
             }
 
-            $jsonResponse->setStatusCode($value->getStatusCode());
+            $jsonResponse->setStatusCode(code: $value->getStatusCode());
             $contentForSubResponses[$key] = [
                 'code' => $jsonResponse->getStatusCode(),
                 'body' => $content,
