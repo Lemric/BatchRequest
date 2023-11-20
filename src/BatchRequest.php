@@ -88,6 +88,8 @@ final class BatchRequest
                     $content = [];
                 }
             }
+
+            $jsonResponse->setStatusCode($value->getStatusCode());
             $contentForSubResponses[$key] = [
                 'code' => $jsonResponse->getStatusCode(),
                 'body' => $content,
@@ -110,6 +112,7 @@ final class BatchRequest
     {
         return $this->generateBatchResponseFromSubResponses(array_map(callback: function ($request): ?Response {
             try {
+
                 return $this->httpKernel->handle(request: $request, type: HttpKernelInterface::SUB_REQUEST);
             } catch (Exception) {
             }
