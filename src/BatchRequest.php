@@ -225,7 +225,7 @@ final class BatchRequest
                 cookies: $cookies,
                 files: $files,
                 server: $server,
-                content: [] === $parameters ? $batchedRequest['body'] ?? [] : $parameters,
+                content: json_encode($parameters === [] ? $batchedRequest['body'] ?? [] : $parameters),
             );
             if ($session instanceof SessionInterface) {
                 $newRequest->setSession($session);
