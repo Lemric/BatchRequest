@@ -20,6 +20,7 @@ use function end;
 use Exception;
 
 use function explode;
+
 use function is_array;
 use function is_string;
 use function json_decode;
@@ -31,9 +32,11 @@ use JsonException;
 
 use function parse_str;
 
-use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
+use ReflectionClass;
+
+use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
 use Symfony\Component\HttpKernel\Exception\HttpException;
-use Symfony\Component\HttpKernel\{HttpKernelInterface};
+use Symfony\Component\HttpKernel\{Exception\NotFoundHttpException, HttpKernelInterface};
 
 final class BatchRequest
 {
@@ -62,6 +65,7 @@ final class BatchRequest
         $jsonResponse = new JsonResponse();
         $jsonResponse->headers->set('Content-Type', 'application/json');
         $contentForSubResponses = [];
+
         foreach ($responseList as $key => $value) {
             $headers = array_map(callback: static function ($item) {
                 $item = is_array(value: $item) ? end(array: $item) : $item;
@@ -89,9 +93,8 @@ final class BatchRequest
                 }
             }
 
-            $jsonResponse->setStatusCode(code: $value->getStatusCode());
             $contentForSubResponses[$key] = [
-                'code' => $jsonResponse->getStatusCode(),
+                'code' => 0 === $value->getStatusCode() ? 200 : $value->getStatusCode(),
                 'body' => $content,
             ];
 
@@ -110,14 +113,24 @@ final class BatchRequest
 
     private function getBatchRequestResponse(array $responseList): JsonResponse
     {
-        return $this->generateBatchResponseFromSubResponses(array_map(callback: function ($request): ?Response {
+        return $this->generateBatchResponseFromSubResponses(array_map(callback: function (Request $request): ?Response {
             try {
-
                 return $this->httpKernel->handle(request: $request, type: HttpKernelInterface::SUB_REQUEST);
-            } catch (Exception) {
+            } catch (NotFoundHttpException $e) {
+                return new JsonResponse(data: [
+                    'error' => [
+                        'type' => (new ReflectionClass($e))->getShortName(),
+                        'message' => $e->getMessage(),
+                    ],
+                ], status: 404);
+            } catch (Exception $e) {
+                return new JsonResponse(data: [
+                    'error' => [
+                        'type' => (new ReflectionClass($e))->getShortName(),
+                        'message' => $e->getMessage(),
+                    ],
+                ], status: 500);
             }
-
-            return null;
         }, array: $responseList));
     }
 
@@ -172,18 +185,20 @@ final class BatchRequest
         return $parameters;
     }
 
-    /**
-     * @throws JsonException
-     */
     private function getTransactions(Request $request): array
     {
         try {
-            if (!empty($request->getContent())) {
-                $requests = json_decode(
-                    json: $request->getContent(),
-                    associative: true,
-                    flags: JSON_THROW_ON_ERROR
-                );
+            $content = $request->getContent();
+            if (!empty($content)) {
+                if (is_string($content) && is_array(json_decode($content, true)) && 0 == json_last_error()) {
+                    $requests = json_decode(
+                        json: $request->getContent(),
+                        associative: true,
+                        flags: JSON_THROW_ON_ERROR
+                    );
+                } else {
+                    throw new HttpException(400, 'Invalid request: json decode exception');
+                }
             }
         } catch (JsonException $ex) {
             throw new HttpException(400, sprintf('Invalid request: %s', $ex->getMessage()));
@@ -191,27 +206,31 @@ final class BatchRequest
         if (empty($requests)) {
             throw new HttpException(400, 'Invalid request');
         }
+        $files = $request->files->all();
+        $headers = $request->headers->all();
+        $session = $request->hasSession() ? $request->getSession() : null;
+        $cookies = $request->cookies->all();
+        $server = $request->server->all();
 
-        return array_map(callback: function ($batchedRequest) use ($request) {
-            $files = $request->files->all();
+        return array_map(callback: function ($batchedRequest) use ($files, $headers, $session, $cookies, $server) {
+
             $requestFiles = array_map(fn ($file): string => trim($file), explode(',', $batchedRequest['attached_files'] ?? ''));
             $files = array_intersect_key($files, array_flip($requestFiles));
-            $server = $request->server->all();
             $server['IS_INTERNAL'] = true;
             $parameters = $this->getParameters($batchedRequest);
             $newRequest = Request::create(
                 uri: $batchedRequest['relative_url'],
                 method: $batchedRequest['method'] ?? 'GET',
                 parameters: $parameters,
-                cookies: $request->cookies->all(),
+                cookies: $cookies,
                 files: $files,
                 server: $server,
-                content: $parameters === [] ? $batchedRequest['body'] ?? [] : $parameters,
+                content: [] === $parameters ? $batchedRequest['body'] ?? [] : $parameters,
             );
-            if ($request->hasSession()) {
-                $newRequest->setSession($request->getSession());
+            if ($session instanceof SessionInterface) {
+                $newRequest->setSession($session);
             }
-            $newRequest->headers->replace(headers: $request->headers->all());
+            $newRequest->headers->replace(headers: $headers);
 
             return $newRequest;
         }, array: $requests);
@@ -220,7 +239,7 @@ final class BatchRequest
     private function parseRequest(Request $request): JsonResponse
     {
         try {
-            $responseList = $this->getTransactions($request);
+            return $this->getBatchRequestResponse($this->getTransactions($request));
         } catch (HttpException $e) {
             return new JsonResponse(data: [
                 'result' => 'error',
@@ -236,7 +255,5 @@ final class BatchRequest
                 ],
             ], status: 500);
         }
-
-        return $this->getBatchRequestResponse($responseList);
     }
 }
