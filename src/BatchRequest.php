@@ -11,6 +11,7 @@
 
 namespace Lemric\BatchRequest;
 
+use ReflectionException;
 use function array_map;
 use function array_merge;
 use function array_pop;
@@ -34,54 +35,50 @@ use function parse_str;
 
 use ReflectionClass;
 
-use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
+use Symfony\Component\HttpFoundation\{HeaderBag, JsonResponse, Request, Response, Session\SessionInterface};
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\{Exception\NotFoundHttpException, HttpKernelInterface};
 
 final class BatchRequest
 {
+    public const JSON_CONTENT_TYPE = 'application/json';
+
+    public const JSON_WWW_FORM_URLENCODED = 'application/x-www-form-urlencoded';
+
     private bool $includeHeaders = false;
 
     public function __construct(private readonly HttpKernelInterface $httpKernel)
     {
     }
 
-    public function handle(Request $request = null): JsonResponse
+    public function handle(Request $request): JsonResponse
     {
-        $this->includeHeaders = (
-            ($request->request->has('include_headers')
-                && 'false' != $request->request->has('include_headers'))
-            || 'true' === $request->request->get('include_headers')
-            || ($request->query->has('include_headers')
-                && 'false' != $request->query->has('include_headers'))
-            || 'true' === $request->query->get('include_headers')
-        );
+        $includeHeaders = $request->request->get('include_headers') ?? $request->query->get('include_headers');
+        $this->includeHeaders = ($includeHeaders === 'true');
 
         return $this->parseRequest($request);
     }
 
-    private function generateBatchResponseFromSubResponses(array $responseList): JsonResponse
+    private function generateBatchResponse(array $responseList): JsonResponse
     {
         $jsonResponse = new JsonResponse();
-        $jsonResponse->headers->set('Content-Type', 'application/json');
+        $jsonResponse->headers->set('Content-Type', self::JSON_CONTENT_TYPE);
         $contentForSubResponses = [];
 
         foreach ($responseList as $key => $value) {
+            try {
+                $valueHeaders = $value->headers;
+            } catch (\Error $error) {
+                $valueHeaders = new HeaderBag();
+            }
             $headers = array_map(callback: static function ($item) {
-                $item = is_array(value: $item) ? end(array: $item) : $item;
-                if ('false' === $item) {
-                    $item = false;
-                } elseif ('true' === $item) {
-                    $item = true;
-                }
+                $item = is_array($item) ? end($item) : $item;
+                return $item === 'false' ? false : ($item === 'true' ? true : $item);
+            }, array: !isset($valueHeaders)  ? $valueHeaders->all() : []);
 
-                return $item;
-            }, array: null !== $value->headers ? $value->headers->all() : []);
-
-            $headers['content-type'] ??= 'application/json';
-
+            $headers['content-type'] ??= self::JSON_CONTENT_TYPE;
             $content = $value->getContent();
-            if ('application/json' === $headers['content-type']) {
+            if (self::JSON_CONTENT_TYPE === $headers['content-type']) {
                 try {
                     $content = json_decode(
                         json: (string) $content,
@@ -94,7 +91,7 @@ final class BatchRequest
             }
 
             $contentForSubResponses[$key] = [
-                'code' => 0 === $value->getStatusCode() ? 200 : $value->getStatusCode(),
+                'code' => 0 === $value->getStatusCode() ? Response::HTTP_OK : $value->getStatusCode(),
                 'body' => $content,
             ];
 
@@ -102,6 +99,7 @@ final class BatchRequest
                 $contentForSubResponses[$key]['headers'] = $headers;
             }
         }
+
         $jsonResponse->setContent(
             json_encode(
                 value: $contentForSubResponses
@@ -111,9 +109,12 @@ final class BatchRequest
         return $jsonResponse;
     }
 
-    private function getBatchRequestResponse(array $responseList): JsonResponse
+    /**
+     * @throws ReflectionException
+     */
+    private function getBatchRequestResponse(array $requests): JsonResponse
     {
-        return $this->generateBatchResponseFromSubResponses(array_map(callback: function (Request $request): ?Response {
+        return $this->generateBatchResponse(array_map(callback: function (Request $request): ?Response {
             try {
                 return $this->httpKernel->handle(request: $request, type: HttpKernelInterface::SUB_REQUEST);
             } catch (NotFoundHttpException $e) {
@@ -122,16 +123,16 @@ final class BatchRequest
                         'type' => (new ReflectionClass($e))->getShortName(),
                         'message' => $e->getMessage(),
                     ],
-                ], status: 404);
+                ], status: Response::HTTP_NOT_FOUND);
             } catch (Exception $e) {
                 return new JsonResponse(data: [
                     'error' => [
                         'type' => (new ReflectionClass($e))->getShortName(),
                         'message' => $e->getMessage(),
                     ],
-                ], status: 500);
+                ], status: Response::HTTP_INTERNAL_SERVER_ERROR);
             }
-        }, array: $responseList));
+        }, array: $requests));
     }
 
     private function getParameters(array $batchedRequest): array
@@ -146,12 +147,13 @@ final class BatchRequest
     {
         $parameters = [];
         if (isset($batchedRequest['body'], $batchedRequest['content-type'])) {
-            if ('application/json' === $batchedRequest['content-type']
+            if (self::JSON_CONTENT_TYPE === $batchedRequest['content-type']
                 && is_array(value: $batchedRequest['body'])
             ) {
                 return $batchedRequest['body'];
             }
-            if ('application/x-www-form-urlencoded' === $batchedRequest['content-type']
+
+            if (self::JSON_WWW_FORM_URLENCODED === $batchedRequest['content-type']
                 && is_string(value: $batchedRequest['body'])
             ) {
                 parse_str(string: $batchedRequest['body'], result: $parameters);
@@ -175,14 +177,15 @@ final class BatchRequest
 
     private function getQueryParameters(array $batchedRequest): array
     {
-        $parameters = [];
         $urlSections = explode(separator: '?', string: (string) $batchedRequest['relative_url']);
         if (2 === count(value: $urlSections) && (isset($urlSections[1]) && '' !== $urlSections[1])) {
             $queryString = array_pop(array: $urlSections);
             parse_str(string: $queryString, result: $parameters);
+
+            return $parameters;
         }
 
-        return $parameters;
+        return [];
     }
 
     private function getTransactions(Request $request): array
@@ -190,30 +193,34 @@ final class BatchRequest
         try {
             $content = $request->getContent();
             if (!empty($content)) {
-                if (is_string($content) && is_array(json_decode($content, true)) && 0 == json_last_error()) {
+                if (is_string($content) && is_array(json_decode(json: $content, associative: true)) && 0 == json_last_error()) {
                     $requests = json_decode(
-                        json: $request->getContent(),
+                        json: $content,
                         associative: true,
                         flags: JSON_THROW_ON_ERROR
                     );
                 } else {
-                    throw new HttpException(400, 'Invalid request: json decode exception');
+                    throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request: json decode exception');
                 }
             }
-        } catch (JsonException $ex) {
-            throw new HttpException(400, sprintf('Invalid request: %s', $ex->getMessage()));
+        } catch (JsonException $jsonException) {
+            throw new HttpException(Response::HTTP_BAD_REQUEST, sprintf('Invalid request: %s', $jsonException->getMessage()));
         }
+
         if (empty($requests)) {
-            throw new HttpException(400, 'Invalid request');
+            throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request');
         }
+
         $files = $request->files->all();
         $headers = $request->headers->all();
         $session = $request->hasSession() ? $request->getSession() : null;
         $cookies = $request->cookies->all();
         $server = $request->server->all();
 
-        return array_map(callback: function ($batchedRequest) use ($files, $headers, $session, $cookies, $server) {
+        return array_map(callback: function ($batchedRequest) use ($files, $headers, $session, $cookies, $server): Request {
 
+            $batchedRequest['headers'] ??= [];
+            $batchedRequestHeaders = array_merge_recursive($headers, $batchedRequest['headers']);
             $requestFiles = array_map(fn ($file): string => trim($file), explode(',', $batchedRequest['attached_files'] ?? ''));
             $files = array_intersect_key($files, array_flip($requestFiles));
             $server['IS_INTERNAL'] = true;
@@ -230,7 +237,8 @@ final class BatchRequest
             if ($session instanceof SessionInterface) {
                 $newRequest->setSession($session);
             }
-            $newRequest->headers->replace(headers: $headers);
+
+            $newRequest->headers->replace(headers: $batchedRequestHeaders);
 
             return $newRequest;
         }, array: $requests);
@@ -253,7 +261,7 @@ final class BatchRequest
                 'errors' => [
                     ['message' => $e->getMessage(), 'type' => 'system_error'],
                 ],
-            ], status: 500);
+            ], status: Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 }

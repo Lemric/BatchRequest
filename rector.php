@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 use Rector\Config\RectorConfig;
 use Rector\Doctrine\Set\DoctrineSetList;
+use Rector\PHPUnit\Set\PHPUnitSetList;
 use Rector\Set\ValueObject\LevelSetList;
 use Rector\Set\ValueObject\SetList;
 use Rector\Symfony\Set\SymfonySetList;
@@ -33,7 +34,15 @@ return static function (RectorConfig $rectorConfig): void {
         SetList::DEAD_CODE,
         SetList::PHP_82,
         SetList::TYPE_DECLARATION,
-        SetList::NAMING,
-        LevelSetList::UP_TO_PHP_82
+        SetList::CODING_STYLE,
+        SetList::EARLY_RETURN,
+        SetList::INSTANCEOF,
+        SetList::PRIVATIZATION,
+        SymfonySetList::SYMFONY_CODE_QUALITY,
+        SymfonySetList::SYMFONY_71,
+        SymfonySetList::SYMFONY_CONSTRUCTOR_INJECTION,
+        LevelSetList::UP_TO_PHP_82,
+        PHPUnitSetList::PHPUNIT_CODE_QUALITY,
+        PHPUnitSetList::PHPUNIT_110,
     ]);
 };

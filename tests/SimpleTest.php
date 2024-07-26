@@ -52,6 +52,37 @@ class SimpleTest extends TestCase
     /**
      * @throws Exception
      */
+    public function testHandleGetWithHeaders(): void
+    {
+        $httpKernel = $this->createMock(HttpKernel::class);
+        $request = new Request([], [
+            'include_headers' => 'false',
+        ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
+        $request->headers->add([
+            'content-type' => 'application/json',
+        ]);
+        $batchRequest = new BatchRequest($httpKernel);
+        $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
+    }
+    /**
+     * @throws Exception
+     */
+    public function testHandleGetWithHeadersInResponse(): void
+    {
+        $httpKernel = $this->createMock(HttpKernel::class);
+        $request = new Request([], [
+            'include_headers' => 'true',
+        ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
+        $request->headers->add([
+            'content-type' => 'application/json',
+        ]);
+        $batchRequest = new BatchRequest($httpKernel);
+        $this->assertSame('[{"code":200,"body":[],"headers":{"content-type":"application\/json"}},{"code":200,"body":[],"headers":{"content-type":"application\/json"}}]', $batchRequest->handle($request)->getContent());
+    }
+
+    /**
+     * @throws Exception
+     */
     public function testHandleMixed(): void
     {
         $httpKernel = $this->createMock(HttpKernel::class);
