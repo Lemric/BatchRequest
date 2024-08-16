@@ -1,0 +1,171 @@
+<?php
+
+namespace Lemric\BatchRequest;
+
+use JsonException;
+use function array_merge;
+use function array_pop;
+use function count;
+use function explode;
+use function array_map;
+use function is_array;
+use function is_string;
+use function json_decode;
+use function json_encode;
+use const JSON_THROW_ON_ERROR;
+use function parse_str;
+
+use Symfony\Component\HttpFoundation\{Request, Session\SessionInterface};
+
+final class Transaction {
+
+    public const JSON_CONTENT_TYPE = 'application/json';
+
+    public const JSON_WWW_FORM_URLENCODED = 'application/x-www-form-urlencoded';
+
+    private readonly string $method;
+
+    private string $uri = '/';
+
+    private readonly array $parameters;
+
+    private readonly string $content;
+
+    private readonly array $files;
+
+    public function __construct(array $request,
+                                private array $headers,
+                                private readonly ?SessionInterface $session,
+                                private readonly array $cookies,
+                                private array $server,
+                                array $files)
+    {
+        $this->headers = array_merge_recursive($this->headers, $request['headers'] ??= []);
+        $requestFiles = array_map(fn ($file): string => trim($file), explode(',', $request['attached_files'] ?? ''));
+        $this->files = array_intersect_key($files, array_flip($requestFiles));
+        $this->server['IS_INTERNAL'] = true;
+        $this->uri = $request['relative_url'];
+        $this->method = $request['method'] ?? Request::METHOD_GET;
+        $this->parameters = $this->parseRequestParameters($request);
+        $this->content = json_encode($this->parameters === [] ? $request['body'] ?? [] : $this->parameters);
+    }
+
+    public function getMethod(): string
+    {
+        return $this->method;
+    }
+
+    public function getUri(): string
+    {
+        return $this->uri;
+    }
+
+    public function getContent(): string
+    {
+        return $this->content;
+    }
+
+    public function getFiles(): array
+    {
+        return $this->files;
+    }
+
+    public function getHeaders(): array
+    {
+        return $this->headers;
+    }
+
+    public function getCookies(): array
+    {
+        return $this->cookies;
+    }
+
+    public function getServer(): array
+    {
+        return $this->server;
+    }
+
+    public function getParameters(): array
+    {
+        return $this->parameters;
+    }
+
+    public function getSession(): SessionInterface
+    {
+        return $this->session;
+    }
+
+    public function getRequest(): Request
+    {
+        $request = Request::create(
+            uri: $this->uri,
+            method: $this->method,
+            parameters: $this->parameters,
+            cookies: $this->cookies,
+            files: $this->files,
+            server: $this->server,
+            content: $this->content,
+        );
+        if ($this->session instanceof SessionInterface) {
+            $request->setSession($this->session);
+        }
+
+        $request->headers->replace(headers: $this->headers);
+
+        return $request;
+    }
+
+    private function parseRequestParameters(array $request): array
+    {
+        return array_merge(
+            $this->getPayloadParameters($request),
+            $this->getQueryParameters($request)
+        );
+    }
+
+    private function getQueryParameters(array $request): array
+    {
+        $urlSections = explode(separator: '?', string: (string) $request['relative_url']);
+        if (2 === count(value: $urlSections) && (isset($urlSections[1]) && '' !== $urlSections[1])) {
+            $queryString = array_pop(array: $urlSections);
+            parse_str(string: $queryString, result: $parameters);
+
+            return $parameters;
+        }
+
+        return [];
+    }
+
+
+    private function getPayloadParameters(array $request): array
+    {
+        $parameters = [];
+        if (isset($request['body'], $request['content-type'])) {
+            if (self::JSON_CONTENT_TYPE === $request['content-type']
+                && is_array(value: $request['body'])
+            ) {
+                return $request['body'];
+            }
+
+            if (self::JSON_WWW_FORM_URLENCODED === $request['content-type']
+                && is_string(value: $request['body'])
+            ) {
+                parse_str(string: $request['body'], result: $parameters);
+                $parameters = array_map(callback: function ($parameter) {
+                    try {
+                        $parameter = json_decode(
+                            json: $parameter,
+                            associative: true,
+                            flags: JSON_THROW_ON_ERROR
+                        );
+                    } catch (JsonException) {
+                    }
+
+                    return $parameter;
+                }, array: $parameters);
+            }
+        }
+
+        return $parameters;
+    }
+}

@@ -1,5 +1,6 @@
 {
   "name": "lemric/batch-request",
+  "version": "v2.0.1",
   "authors": [
     {
       "name": "Dominik Labudzinski",

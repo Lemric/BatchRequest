@@ -64,6 +64,7 @@ class SimpleTest extends TestCase
         $batchRequest = new BatchRequest($httpKernel);
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
+
     /**
      * @throws Exception
      */
