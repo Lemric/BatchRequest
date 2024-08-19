@@ -20,34 +20,33 @@ use Symfony\Component\HttpFoundation\{Request, Session\SessionInterface};
 final class Transaction {
 
     public const JSON_CONTENT_TYPE = 'application/json';
-
     public const JSON_WWW_FORM_URLENCODED = 'application/x-www-form-urlencoded';
 
     private readonly string $method;
-
     private string $uri = '/';
-
     private readonly array $parameters;
-
     private readonly string $content;
-
     private readonly array $files;
+    private ?SessionInterface $session;
+    private array $cookies;
+    private array $server;
+    private array $headers;
 
-    public function __construct(array $request,
-                                private array $headers,
-                                private readonly ?SessionInterface $session,
-                                private readonly array $cookies,
-                                private array $server,
-                                array $files)
+    public function __construct(readonly array $subRequest, readonly Request $request)
     {
-        $this->headers = array_merge_recursive($this->headers, $request['headers'] ??= []);
-        $requestFiles = array_map(fn ($file): string => trim($file), explode(',', $request['attached_files'] ?? ''));
-        $this->files = array_intersect_key($files, array_flip($requestFiles));
+        $this->headers = $request->headers->all();
+        $this->session = $request->hasSession() ? $request->getSession() : null;
+        $this->cookies = $request->cookies->all();
+        $this->server = $request->server->all();
+
+        $this->headers = array_merge_recursive($this->headers, $subRequest['headers'] ??= []);
+        $requestFiles = array_map(fn ($file): string => trim($file), explode(',', $subRequest['attached_files'] ?? ''));
+        $this->files = array_intersect_key($request->files->all(), array_flip($requestFiles));
         $this->server['IS_INTERNAL'] = true;
-        $this->uri = $request['relative_url'];
-        $this->method = $request['method'] ?? Request::METHOD_GET;
-        $this->parameters = $this->parseRequestParameters($request);
-        $this->content = json_encode($this->parameters === [] ? $request['body'] ?? [] : $this->parameters);
+        $this->uri = $subRequest['relative_url'];
+        $this->method = $subRequest['method'] ?? Request::METHOD_GET;
+        $this->parameters = $this->parseRequestParameters($subRequest);
+        $this->content = json_encode($this->parameters === [] ? $subRequest['body'] ?? [] : $this->parameters);
     }
 
     public function getMethod(): string

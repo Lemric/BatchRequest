@@ -144,14 +144,7 @@ final class BatchRequest
             throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request');
         }
 
-
-        $files = $request->files->all();
-        $headers = $request->headers->all();
-        $session = $request->hasSession() ? $request->getSession() : null;
-        $cookies = $request->cookies->all();
-        $server = $request->server->all();
-
-        return array_map(callback: fn($request): Transaction => new Transaction($request, $headers, $session, $cookies, $server, $files), array: $requests);
+        return array_map(callback: fn($subRequest): Transaction => new Transaction($subRequest, $request), array: $requests);
     }
 
     private function parseRequest(Request $request): JsonResponse
