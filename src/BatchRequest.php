@@ -11,16 +11,20 @@
 
 namespace Lemric\BatchRequest;
 
+use Assert\Assertion;
+use Assert\AssertionFailedException;
 use Error;
 use Exception;
+use Generator;
 use JsonException;
 use Symfony\Component\HttpFoundation\{HeaderBag, JsonResponse, Request, Response};
 use Symfony\Component\HttpKernel\{HttpKernelInterface};
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Throwable;
 use function array_map;
 use function end;
 use function is_array;
-use function is_string;
 use function json_decode;
 use function json_encode;
 use const JSON_THROW_ON_ERROR;
@@ -29,22 +33,38 @@ final class BatchRequest
 {
     private bool $includeHeaders = false;
 
-    public function __construct(private readonly HttpKernelInterface $httpKernel)
+    public function __construct(private readonly HttpKernelInterface $httpKernel,
+                                private readonly ?RateLimiterFactory $rateLimiterFactory = null)
     {
     }
 
     public function handle(Request $request): JsonResponse
     {
-        $includeHeaders = $request->request->get('include_headers') ?? $request->query->get('include_headers');
-        $this->includeHeaders = ($includeHeaders === 'true');
+        $this->includeHeaders = (($request->request->get('include_headers') ?? $request->query->get('include_headers')) === 'true');
+        if($this->rateLimiterFactory instanceof RateLimiterFactory) {
+            $limiter = $this->rateLimiterFactory->create($request->getClientIp());
+            $limit = $limiter->consume();
+            $headers = [
+                'X-RateLimit-Remaining' => $limit->getRemainingTokens(),
+                'X-RateLimit-Retry-After' => $limit->getRetryAfter()->getTimestamp() - time(),
+                'X-RateLimit-Limit' => $limit->getLimit(),
+            ];
 
+            if (false === $limit->isAccepted()) {
+                return new JsonResponse([], Response::HTTP_TOO_MANY_REQUESTS, $headers);
+            }
+        }
         return $this->parseRequest($request);
     }
 
-    private function generateBatchResponse(TransitionCollection $transitionCollection): \Generator
+    /**
+     * @throws AssertionFailedException
+     */
+    private function generateBatchResponse(TransitionCollection $transitionCollection): Generator
     {
-        $transitionCollection = $transitionCollection->map(fn(Transaction $transaction): ?Response => $transaction->handle($this->httpKernel));
+        $transitionCollection = $transitionCollection->map(fn(Transaction $transaction): Response => $transaction->handle($this->httpKernel));
         foreach ($transitionCollection as $value) {
+            Assertion::isInstanceOf($value, Response::class);
             try {
                 $valueHeaders = $value->headers;
             } catch (Error) {
@@ -83,6 +103,9 @@ final class BatchRequest
         }
     }
 
+    /**
+     * @throws AssertionFailedException
+     */
     private function getBatchRequestResponse(TransitionCollection $transitionCollection): JsonResponse
     {
         $jsonResponse = new JsonResponse();
@@ -127,7 +150,7 @@ final class BatchRequest
                     ['message' => $e->getMessage(), 'type' => 'client_error'],
                 ],
             ], status: $e->getStatusCode());
-        } catch (Exception $e) {
+        } catch (Exception|Throwable $e) {
             return new JsonResponse(data: [
                 'result' => 'error',
                 'errors' => [

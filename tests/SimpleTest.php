@@ -16,9 +16,12 @@ use PHPUnit\Framework\MockObject\Exception;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
-use Symfony\Component\HttpFoundation\{Request, RequestStack};
+use Symfony\Component\HttpFoundation\{Request, RequestStack, Response};
 use Symfony\Component\HttpKernel\Controller\{ArgumentResolver, ControllerResolver};
 use Symfony\Component\HttpKernel\HttpKernel;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
+use Symfony\Component\RateLimiter\Storage\StorageInterface;
 
 class SimpleTest extends TestCase
 {
@@ -140,5 +143,31 @@ class SimpleTest extends TestCase
 
         $this->assertSame($jsonResponse->getStatusCode(), 200);
         $this->assertSame('[{"code":404,"body":{"error":{"type":"NotFoundHttpException","message":"Unable to find the controller for path \"\/\". The route is wrongly configured."}}},{"code":404,"body":{"error":{"type":"NotFoundHttpException","message":"Unable to find the controller for path \"\/\". The route is wrongly configured."}}}]', $jsonResponse->getContent());
+    }
+
+    public function testHandleLimitedGet(): void
+    {
+        if(class_exists(RateLimiterFactory::class)) {
+            $httpKernel = $this->createMock(HttpKernel::class);
+            $rateLimiter = new RateLimiterFactory([
+                'id' => 'test',
+                'policy' => 'token_bucket',
+                'limit' => 2,
+                'rate' => [
+                    'interval' => '15 minutes',
+                    'amount' => 500
+                ]
+            ], new InMemoryStorage());
+            $request = new Request([], [
+                'include_headers' => 'false',
+            ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
+            $batchRequest = new BatchRequest($httpKernel, $rateLimiter);
+            $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
+            $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
+            $response = $batchRequest->handle($request);
+            $this->assertSame(Response::HTTP_TOO_MANY_REQUESTS, $response->getStatusCode());
+        } else {
+            $this->markTestSkipped('Install symfony/rate-limiter to control the request limit.');
+        }
     }
 }

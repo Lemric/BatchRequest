@@ -70,7 +70,7 @@ final class Transaction {
         $this->content = json_encode($this->parameters === [] ? $subRequest['body'] ?? [] : $this->parameters);
     }
 
-    public function handle(HttpKernelInterface $httpKernel): JsonResponse|Response
+    public function handle(HttpKernelInterface $httpKernel): Response
     {
         try {
             return $httpKernel->handle(request: $this->getRequest(), type: HttpKernelInterface::SUB_REQUEST);
