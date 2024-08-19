@@ -2,7 +2,11 @@
 
 namespace Lemric\BatchRequest;
 
+use Exception;
 use JsonException;
+use ReflectionClass;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
 use function array_merge;
 use function array_pop;
 use function count;
@@ -15,7 +19,7 @@ use function json_encode;
 use const JSON_THROW_ON_ERROR;
 use function parse_str;
 
-use Symfony\Component\HttpFoundation\{Request, Session\SessionInterface};
+use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
 
 final class Transaction {
 
@@ -47,6 +51,31 @@ final class Transaction {
         $this->method = $subRequest['method'] ?? Request::METHOD_GET;
         $this->parameters = $this->parseRequestParameters($subRequest);
         $this->content = json_encode($this->parameters === [] ? $subRequest['body'] ?? [] : $this->parameters);
+    }
+
+    /**
+     * @param HttpKernelInterface $httpKernel
+     * @return JsonResponse|Response
+     */
+    public function handle(HttpKernelInterface $httpKernel): JsonResponse|Response
+    {
+        try {
+            return $httpKernel->handle(request: $this->getRequest(), type: HttpKernelInterface::SUB_REQUEST);
+        } catch (NotFoundHttpException $e) {
+            return new JsonResponse(data: [
+                'error' => [
+                    'type' => (new ReflectionClass($e))->getShortName(),
+                    'message' => $e->getMessage(),
+                ],
+            ], status: Response::HTTP_NOT_FOUND);
+        } catch (Exception $e) {
+            return new JsonResponse(data: [
+                'error' => [
+                    'type' => (new ReflectionClass($e))->getShortName(),
+                    'message' => $e->getMessage(),
+                ],
+            ], status: Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
     }
 
     public function getMethod(): string

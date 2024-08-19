@@ -94,29 +94,10 @@ final class BatchRequest
         return $jsonResponse;
     }
 
-    /**
-     * @throws ReflectionException
-     */
     private function getBatchRequestResponse(array $transitions): JsonResponse
     {
         return $this->generateBatchResponse(array_map(callback: function (Transaction $transition): ?Response {
-            try {
-                return $this->httpKernel->handle(request: $transition->getRequest(), type: HttpKernelInterface::SUB_REQUEST);
-            } catch (NotFoundHttpException $e) {
-                return new JsonResponse(data: [
-                    'error' => [
-                        'type' => (new ReflectionClass($e))->getShortName(),
-                        'message' => $e->getMessage(),
-                    ],
-                ], status: Response::HTTP_NOT_FOUND);
-            } catch (Exception $e) {
-                return new JsonResponse(data: [
-                    'error' => [
-                        'type' => (new ReflectionClass($e))->getShortName(),
-                        'message' => $e->getMessage(),
-                    ],
-                ], status: Response::HTTP_INTERNAL_SERVER_ERROR);
-            }
+            return $transition->handle($this->httpKernel);
         }, array: $transitions));
     }
 
