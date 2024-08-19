@@ -147,3 +147,32 @@ curl
      -F 'file2=@dog.jpg' \
     /batch
 ```
+
+## Example for Symfony
+### Controller
+```php
+<?php
+
+namespace App\Controller;
+
+use Lemric\BatchRequest\BatchRequest;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\{Request, Response};
+use Symfony\Component\Routing\Annotation\Route;
+
+class DefaultController extends AbstractController
+{
+    #[Route('/batch', name: 'batch')]
+    public function indexAction(Request $request, BatchRequest $batchRequest): Response
+    {
+        return $batchRequest->handle($request);
+    }
+}
+```
+
+### services.yaml
+```yaml
+Lemric\BatchRequest\BatchRequest: ~
+    bind: <-- Only if used syfmony/rate-limiter
+        $rateLimiterFactory: '@limiter.authenticated_api' <-- Use proper configuration service name
+```
