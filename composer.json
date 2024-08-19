@@ -1,9 +1,19 @@
 {
   "name": "lemric/batch-request",
+  "keywords": ["symfony", "batch", "request"],
+  "support": {
+    "issues": "https://github.com/Lemric/BatchRequest/issues",
+    "security": "https://github.com/Lemric/BatchRequest/security",
+    "forum": "https://github.com/Lemric/BatchRequest/discussions"
+  },
   "authors": [
     {
       "name": "Dominik Labudzinski",
       "email": "dominik@labudzinski.com",
+      "homepage": "https://labudzinski.com"
+    },
+    {
+      "name": "Lemric",
       "homepage": "https://lemric.com"
     }
   ],
