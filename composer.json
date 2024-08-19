@@ -1,5 +1,6 @@
 {
   "name": "lemric/batch-request",
+  "description": "Send a single HTTP request that contains multiple (batch) Symfony Request calls. Once all operations are complete, a consolidated response is passed back to you and the HTTP connection is closed.",
   "keywords": ["symfony", "batch", "request"],
   "support": {
     "issues": "https://github.com/Lemric/BatchRequest/issues",
