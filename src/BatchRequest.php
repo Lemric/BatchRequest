@@ -41,13 +41,10 @@ final class BatchRequest
         return $this->parseRequest($request);
     }
 
-    private function generateBatchResponse(array $responseList): JsonResponse
+    private function generateBatchResponse(TransitionCollection $transitions): \Generator
     {
-        $jsonResponse = new JsonResponse();
-        $jsonResponse->headers->set('Content-Type', Transaction::JSON_CONTENT_TYPE);
-        $contentForSubResponses = [];
-
-        foreach ($responseList as $key => $value) {
+        $transitions = $transitions->map(fn(Transaction $transition): ?Response => $transition->handle($this->httpKernel));
+        foreach ($transitions as $value) {
             try {
                 $valueHeaders = $value->headers;
             } catch (Error) {
@@ -73,55 +70,49 @@ final class BatchRequest
                 }
             }
 
-            $contentForSubResponses[$key] = [
+            $response = [
                 'code' => 0 === $value->getStatusCode() ? Response::HTTP_OK : $value->getStatusCode(),
                 'body' => $content,
             ];
 
             if ($this->includeHeaders) {
-                $contentForSubResponses[$key]['headers'] = $headers;
+                $response['headers'] = $headers;
             }
-        }
 
+            yield $response;
+        }
+    }
+
+    private function getBatchRequestResponse(TransitionCollection $transitions): JsonResponse
+    {
+        $jsonResponse = new JsonResponse();
+        $jsonResponse->headers->set('Content-Type', Transaction::JSON_CONTENT_TYPE);
+        $responses = $this->generateBatchResponse($transitions);
         $jsonResponse->setContent(
             json_encode(
-                value: $contentForSubResponses
+                value: iterator_to_array($responses)
             )
         );
 
         return $jsonResponse;
     }
 
-    private function getBatchRequestResponse(TransitionCollection $transitions): JsonResponse
-    {
-        return $this->generateBatchResponse($transitions->map(fn(Transaction $transition): ?Response => $transition->handle($this->httpKernel)));
-    }
-
     private function getTransactions(Request $request): TransitionCollection
     {
         try {
             $content = $request->getContent();
-            if (!empty($content)) {
-                if (is_string($content) && is_array(json_decode(json: $content, associative: true)) && 0 == json_last_error()) {
-                    $requests = new TransitionCollection(json_decode(
-                        json: $content,
-                        associative: true,
-                        flags: JSON_THROW_ON_ERROR
-                    ), $request);
-                } else {
-                    throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request: json decode exception');
-                }
+            if (json_validate($content)) {
+                return new TransitionCollection(json_decode(
+                    json: $content,
+                    associative: true,
+                    flags: JSON_THROW_ON_ERROR
+                ), $request);
             }
+
+            throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request');
         } catch (JsonException $jsonException) {
             throw new HttpException(Response::HTTP_BAD_REQUEST, sprintf('Invalid request: %s', $jsonException->getMessage()));
         }
-
-
-        if (empty($requests)) {
-            throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request');
-        }
-
-        return $requests;
     }
 
     private function parseRequest(Request $request): JsonResponse
