@@ -12,20 +12,18 @@
 namespace Lemric\BatchRequest;
 
 use Error;
-use ReflectionException;
+use Exception;
+use JsonException;
+use Symfony\Component\HttpFoundation\{HeaderBag, JsonResponse, Request, Response};
+use Symfony\Component\HttpKernel\{HttpKernelInterface};
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use function array_map;
 use function end;
-use Exception;
 use function is_array;
 use function is_string;
 use function json_decode;
 use function json_encode;
 use const JSON_THROW_ON_ERROR;
-use JsonException;
-use ReflectionClass;
-use Symfony\Component\HttpFoundation\{HeaderBag, JsonResponse, Request, Response};
-use Symfony\Component\HttpKernel\Exception\HttpException;
-use Symfony\Component\HttpKernel\{Exception\NotFoundHttpException, HttpKernelInterface};
 
 final class BatchRequest
 {
@@ -94,24 +92,22 @@ final class BatchRequest
         return $jsonResponse;
     }
 
-    private function getBatchRequestResponse(array $transitions): JsonResponse
+    private function getBatchRequestResponse(TransitionCollection $transitions): JsonResponse
     {
-        return $this->generateBatchResponse(array_map(callback: function (Transaction $transition): ?Response {
-            return $transition->handle($this->httpKernel);
-        }, array: $transitions));
+        return $this->generateBatchResponse($transitions->map(fn(Transaction $transition): ?Response => $transition->handle($this->httpKernel)));
     }
 
-    private function getTransactions(Request $request): array
+    private function getTransactions(Request $request): TransitionCollection
     {
         try {
             $content = $request->getContent();
             if (!empty($content)) {
                 if (is_string($content) && is_array(json_decode(json: $content, associative: true)) && 0 == json_last_error()) {
-                    $requests = json_decode(
+                    $requests = new TransitionCollection(json_decode(
                         json: $content,
                         associative: true,
                         flags: JSON_THROW_ON_ERROR
-                    );
+                    ), $request);
                 } else {
                     throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request: json decode exception');
                 }
@@ -125,13 +121,13 @@ final class BatchRequest
             throw new HttpException(Response::HTTP_BAD_REQUEST, 'Invalid request');
         }
 
-        return array_map(callback: fn($subRequest): Transaction => new Transaction($subRequest, $request), array: $requests);
+        return $requests;
     }
 
     private function parseRequest(Request $request): JsonResponse
     {
-        $transitions = $this->getTransactions($request);
         try {
+            $transitions = $this->getTransactions($request);
             return $this->getBatchRequestResponse($transitions);
         } catch (HttpException $e) {
             return new JsonResponse(data: [

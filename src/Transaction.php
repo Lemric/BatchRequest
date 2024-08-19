@@ -1,39 +1,56 @@
 <?php
 
+/**
+ * This file is part of the Lemric package.
+ * (c) Lemric
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ *
+ * @author Dominik Labudzinski <dominik@labudzinski.com>
+ */
+
 namespace Lemric\BatchRequest;
 
 use Exception;
 use JsonException;
 use ReflectionClass;
+use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
+use function array_map;
 use function array_merge;
 use function array_pop;
 use function count;
 use function explode;
-use function array_map;
 use function is_array;
 use function is_string;
 use function json_decode;
 use function json_encode;
-use const JSON_THROW_ON_ERROR;
 use function parse_str;
-
-use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
+use const JSON_THROW_ON_ERROR;
 
 final class Transaction {
 
     public const JSON_CONTENT_TYPE = 'application/json';
+
     public const JSON_WWW_FORM_URLENCODED = 'application/x-www-form-urlencoded';
 
     private readonly string $method;
+
     private string $uri = '/';
+
     private readonly array $parameters;
+
     private readonly string $content;
+
     private readonly array $files;
-    private ?SessionInterface $session;
-    private array $cookies;
+
+    private readonly ?SessionInterface $session;
+
+    private readonly array $cookies;
+
     private array $server;
+
     private array $headers;
 
     public function __construct(readonly array $subRequest, readonly Request $request)
@@ -53,10 +70,6 @@ final class Transaction {
         $this->content = json_encode($this->parameters === [] ? $subRequest['body'] ?? [] : $this->parameters);
     }
 
-    /**
-     * @param HttpKernelInterface $httpKernel
-     * @return JsonResponse|Response
-     */
     public function handle(HttpKernelInterface $httpKernel): JsonResponse|Response
     {
         try {
