@@ -13,6 +13,9 @@ When all operations are complete, a consolidated response is returned to you and
 The order of the responses matches the order of the operations in the request.
 You should process the responses accordingly to determine which operations were successful and which should be retried in a subsequent operation.
 
+### Limitations
+To limit the number of requests in a batch, use ```symfony/rate-limiter```.
+Batch requests are limited by the symfony/rate-limiter configuration of requests per batch. Each call within a batch is counted separately for purposes of calculating API call limits.
 ### Batch Request
 A batch request takes a JSON object consisting of an array of your requests. It returns an array of logical HTTP responses represented as JSON arrays.
 Each response has a status code, an optional header array, and an optional body (which is a JSON-encoded string).

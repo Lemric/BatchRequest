@@ -28,6 +28,11 @@ class TransitionCollection implements IteratorAggregate
         return array_map($fn, $this->elements);
     }
 
+    public function size(): int
+    {
+        return count($this->elements);
+    }
+
     public function getIterator(): Traversable
     {
         return new ArrayIterator($this->elements);

@@ -163,9 +163,8 @@ class SimpleTest extends TestCase
             ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
             $batchRequest = new BatchRequest($httpKernel, $rateLimiter);
             $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
-            $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
             $response = $batchRequest->handle($request);
-            $this->assertSame(Response::HTTP_TOO_MANY_REQUESTS, $response->getStatusCode());
+            $this->assertSame(Response::HTTP_TOO_MANY_REQUESTS, $response->getStatusCode(), $response->getContent());
         } else {
             $this->markTestSkipped('Install symfony/rate-limiter to control the request limit.');
         }

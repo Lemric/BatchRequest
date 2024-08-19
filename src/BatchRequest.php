@@ -18,8 +18,9 @@ use Exception;
 use Generator;
 use JsonException;
 use Symfony\Component\HttpFoundation\{HeaderBag, JsonResponse, Request, Response};
-use Symfony\Component\HttpKernel\{HttpKernelInterface};
+use Symfony\Component\HttpKernel\{Exception\TooManyRequestsHttpException, HttpKernelInterface};
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\RateLimiter\LimiterInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Throwable;
 use function array_map;
@@ -33,27 +34,19 @@ final class BatchRequest
 {
     private bool $includeHeaders = false;
 
+    private ?LimiterInterface $limiter = null;
+
     public function __construct(private readonly HttpKernelInterface $httpKernel,
                                 private readonly ?RateLimiterFactory $rateLimiterFactory = null)
     {
+
     }
 
     public function handle(Request $request): JsonResponse
     {
         $this->includeHeaders = (($request->request->get('include_headers') ?? $request->query->get('include_headers')) === 'true');
-        if($this->rateLimiterFactory instanceof RateLimiterFactory) {
-            $limiter = $this->rateLimiterFactory->create($request->getClientIp());
-            $limit = $limiter->consume();
-            $headers = [
-                'X-RateLimit-Remaining' => $limit->getRemainingTokens(),
-                'X-RateLimit-Retry-After' => $limit->getRetryAfter()->getTimestamp() - time(),
-                'X-RateLimit-Limit' => $limit->getLimit(),
-            ];
+        $this->limiter = $this->rateLimiterFactory?->create($request->getClientIp());
 
-            if (false === $limit->isAccepted()) {
-                return new JsonResponse([], Response::HTTP_TOO_MANY_REQUESTS, $headers);
-            }
-        }
         return $this->parseRequest($request);
     }
 
@@ -142,8 +135,9 @@ final class BatchRequest
     {
         try {
             $transitions = $this->getTransactions($request);
+            $this->checkRequestsLimit($transitions);
             return $this->getBatchRequestResponse($transitions);
-        } catch (HttpException $e) {
+        } catch (HttpException|TooManyRequestsHttpException $e) {
             return new JsonResponse(data: [
                 'result' => 'error',
                 'errors' => [
@@ -157,6 +151,16 @@ final class BatchRequest
                     ['message' => $e->getMessage(), 'type' => 'system_error'],
                 ],
             ], status: Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    private function checkRequestsLimit(TransitionCollection $transitions): void
+    {
+        if($this->limiter instanceof LimiterInterface) {
+            $limit = $this->limiter->consume($transitions->size());
+            if (false === $limit->isAccepted()) {
+                throw new TooManyRequestsHttpException(message: 'Too any requests', code: Response::HTTP_TOO_MANY_REQUESTS);
+            }
         }
     }
 }
