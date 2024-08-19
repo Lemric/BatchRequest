@@ -16,6 +16,7 @@ use Rector\PHPUnit\Set\PHPUnitSetList;
 use Rector\Set\ValueObject\LevelSetList;
 use Rector\Set\ValueObject\SetList;
 use Rector\Symfony\Set\SymfonySetList;
+use Rector\TypeDeclaration\Rector\Property\TypedPropertyFromAssignsRector;
 use Rector\TypeDeclaration\Rector\Property\TypedPropertyFromStrictConstructorRector;
 
 return static function (RectorConfig $rectorConfig): void {
@@ -23,10 +24,6 @@ return static function (RectorConfig $rectorConfig): void {
         __DIR__ . '/src',
         __DIR__ . '/tests',
     ]);
-    $rectorConfig->rule(TypedPropertyFromStrictConstructorRector::class);
-
-    $rectorConfig->import(DoctrineSetList::ANNOTATIONS_TO_ATTRIBUTES);
-    $rectorConfig->import(SymfonySetList::ANNOTATIONS_TO_ATTRIBUTES);
 
     $rectorConfig->sets([
         DoctrineSetList::DOCTRINE_CODE_QUALITY,
@@ -39,9 +36,9 @@ return static function (RectorConfig $rectorConfig): void {
         SetList::INSTANCEOF,
         SetList::PRIVATIZATION,
         SymfonySetList::SYMFONY_CODE_QUALITY,
-        SymfonySetList::SYMFONY_51,
+        SymfonySetList::SYMFONY_64,
         SymfonySetList::SYMFONY_CONSTRUCTOR_INJECTION,
-        LevelSetList::UP_TO_PHP_83,
+        LevelSetList::UP_TO_PHP_84,
         PHPUnitSetList::PHPUNIT_CODE_QUALITY,
         PHPUnitSetList::PHPUNIT_110,
     ]);

@@ -41,10 +41,10 @@ final class BatchRequest
         return $this->parseRequest($request);
     }
 
-    private function generateBatchResponse(TransitionCollection $transitions): \Generator
+    private function generateBatchResponse(TransitionCollection $transitionCollection): \Generator
     {
-        $transitions = $transitions->map(fn(Transaction $transition): ?Response => $transition->handle($this->httpKernel));
-        foreach ($transitions as $value) {
+        $transitionCollection = $transitionCollection->map(fn(Transaction $transaction): ?Response => $transaction->handle($this->httpKernel));
+        foreach ($transitionCollection as $value) {
             try {
                 $valueHeaders = $value->headers;
             } catch (Error) {
@@ -83,14 +83,14 @@ final class BatchRequest
         }
     }
 
-    private function getBatchRequestResponse(TransitionCollection $transitions): JsonResponse
+    private function getBatchRequestResponse(TransitionCollection $transitionCollection): JsonResponse
     {
         $jsonResponse = new JsonResponse();
         $jsonResponse->headers->set('Content-Type', Transaction::JSON_CONTENT_TYPE);
-        $responses = $this->generateBatchResponse($transitions);
+        $generator = $this->generateBatchResponse($transitionCollection);
         $jsonResponse->setContent(
             json_encode(
-                value: iterator_to_array($responses)
+                value: iterator_to_array($generator)
             )
         );
 

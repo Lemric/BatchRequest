@@ -136,9 +136,9 @@ class SimpleTest extends TestCase
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
         $batchRequest = new BatchRequest($this->httpKernel);
-        $response = $batchRequest->handle($request);
+        $jsonResponse = $batchRequest->handle($request);
 
-        $this->assertSame($response->getStatusCode(), 200);
-        $this->assertSame('[{"code":404,"body":{"error":{"type":"NotFoundHttpException","message":"Unable to find the controller for path \"\/\". The route is wrongly configured."}}},{"code":404,"body":{"error":{"type":"NotFoundHttpException","message":"Unable to find the controller for path \"\/\". The route is wrongly configured."}}}]', $response->getContent());
+        $this->assertSame($jsonResponse->getStatusCode(), 200);
+        $this->assertSame('[{"code":404,"body":{"error":{"type":"NotFoundHttpException","message":"Unable to find the controller for path \"\/\". The route is wrongly configured."}}},{"code":404,"body":{"error":{"type":"NotFoundHttpException","message":"Unable to find the controller for path \"\/\". The route is wrongly configured."}}}]', $jsonResponse->getContent());
     }
 }
