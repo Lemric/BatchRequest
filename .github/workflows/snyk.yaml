@@ -7,7 +7,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: true
 permissions:
+  actions: read
   contents: read
+  security-events: write
 jobs:
   build:
     runs-on: ubuntu-latest
