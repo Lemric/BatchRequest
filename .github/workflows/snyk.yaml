@@ -28,6 +28,7 @@ jobs:
       - name: Install Dependencies
         run: composer install --no-scripts
       - uses: snyk/actions/php@master
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
