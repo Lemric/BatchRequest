@@ -1,5 +1,6 @@
 # Lemric Batch Request for Symfony
-![Batch Request](./doc/logo.webp)
+<img src="./doc/logo.webp" width="250" height="250">
+
 ## Installing
 Install from composer :
 ```
