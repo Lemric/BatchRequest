@@ -50,7 +50,7 @@ curl -X POST --location 'http://localhost:8282/batch'
 
 Once all operations are completed, a response is sent with the result of each operation.
 Because the headers returned can sometimes be much larger than the actual API response, you may want to remove them for efficiency.
-To include headers, remove the include_headers parameter or set it to true.
+To include headers, remove the include_headers parameter or set it to false.
 
 #### Sample Response
 
