@@ -69,6 +69,7 @@ class RequestParser
         foreach ($transitions->map(fn(Transaction $transaction): \Symfony\Component\HttpFoundation\Response => $transaction->handle($httpKernel)) as $response) {
             Assertion::isInstanceOf($response, Response::class);
             $headers = $this->extractHeaders($response);
+            $headers['content-type'] ??= Transaction::JSON_CONTENT_TYPE;
 
             $content = $response->getContent() === false ? [] : $response->getContent();
             if (Transaction::JSON_CONTENT_TYPE === $headers['content-type']) {
