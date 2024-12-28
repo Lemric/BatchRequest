@@ -18,23 +18,42 @@ use Traversable;
 
 class TransitionCollection implements IteratorAggregate
 {
-    public function __construct(private array $elements, readonly Request $mainRequest)
+    /** @var Transaction[] */
+    private array $transactions;
+
+    public function __construct(
+        private readonly array                      $elements,
+        private readonly Request                    $mainRequest,
+        private readonly TransactionParameterParser $parameterParser
+    ) {
+        $this->initializeTransactions();
+    }
+
+    private function initializeTransactions(): void
     {
-        $this->elements = array_map(callback: fn($subRequest): Transaction => new Transaction($subRequest, $mainRequest), array: $elements);
+        $this->transactions = array_map(
+            fn($subRequest): Transaction => new Transaction($subRequest, $this->mainRequest, $this->parameterParser),
+            $this->elements
+        );
     }
 
     public function map(callable $fn): array
     {
-        return array_map($fn, $this->elements);
+        return array_map($fn, $this->transactions);
     }
 
     public function size(): int
     {
-        return count($this->elements);
+        return count($this->transactions);
     }
 
     public function getIterator(): Traversable
     {
-        return new ArrayIterator($this->elements);
+        return new ArrayIterator($this->transactions);
+    }
+
+    public function getTransactions(): array
+    {
+        return $this->transactions;
     }
 }

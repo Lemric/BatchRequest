@@ -10,18 +10,29 @@
  */
 
 namespace Lemric\BatchRequest\Tests;
+error_reporting(E_ALL & ~E_DEPRECATED);
 
+use DateTime;
+use DateTimeZone;
 use Lemric\BatchRequest\BatchRequest;
+use Lemric\BatchRequest\RequestParser;
+use Lemric\BatchRequest\TransactionFactory;
 use PHPUnit\Framework\MockObject\Exception;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
-use Symfony\Component\HttpFoundation\{Request, RequestStack, Response};
-use Symfony\Component\HttpKernel\Controller\{ArgumentResolver, ControllerResolver};
+use Symfony\Component\HttpFoundation\{JsonResponse, Request, RequestStack, Response};
+use Symfony\Component\HttpKernel\Controller\{ArgumentResolver, ControllerResolver, ControllerResolverInterface};
+use Symfony\Component\HttpKernel\EventListener\RouterListener;
 use Symfony\Component\HttpKernel\HttpKernel;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
 use Symfony\Component\RateLimiter\Storage\StorageInterface;
+use Symfony\Component\Routing\Matcher\UrlMatcher;
+use Symfony\Component\Routing\RequestContext;
+use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouteCollection;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 class SimpleTest extends TestCase
 {
@@ -48,7 +59,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($httpKernel);
+        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -64,7 +75,7 @@ class SimpleTest extends TestCase
         $request->headers->add([
             'content-type' => 'application/json',
         ]);
-        $batchRequest = new BatchRequest($httpKernel);
+        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -73,15 +84,29 @@ class SimpleTest extends TestCase
      */
     public function testHandleGetWithHeadersInResponse(): void
     {
-        $httpKernel = $this->createMock(HttpKernel::class);
+        $routes = new RouteCollection();
+        $routes->add('hello', new Route('/', [
+                '_controller' => fn(Request $request): Response => new JsonResponse(
+                    []
+                )]
+        ));
+
+        $matcher = new UrlMatcher($routes, new RequestContext());
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addSubscriber(new RouterListener($matcher, new RequestStack()));
+
+        $controllerResolver = new ControllerResolver();
+        $argumentResolver = new ArgumentResolver();
+        $httpKernel = new HttpKernel($dispatcher, $controllerResolver, new RequestStack(), $argumentResolver);
         $request = new Request([], [
             'include_headers' => 'true',
         ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
         $request->headers->add([
             'content-type' => 'application/json',
         ]);
-        $batchRequest = new BatchRequest($httpKernel);
-        $this->assertSame('[{"code":200,"body":[],"headers":{"content-type":"application\/json"}},{"code":200,"body":[],"headers":{"content-type":"application\/json"}}]', $batchRequest->handle($request)->getContent());
+        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $currentDate = (new DateTime('NOW', new DateTimeZone('GMT')))->format('D, d M Y H:i:s') . ' GMT';
+        $this->assertSame(sprintf('[{"code":200,"body":[],"headers":{"cache-control":"no-cache, private","date":"%s","content-type":"application\/json"}},{"code":200,"body":[],"headers":{"cache-control":"no-cache, private","date":"%s","content-type":"application\/json"}}]', $currentDate, $currentDate), $batchRequest->handle($request)->getContent());
     }
 
     /**
@@ -93,7 +118,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($httpKernel);
+        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -106,7 +131,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"POST","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($httpKernel);
+        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -126,7 +151,7 @@ class SimpleTest extends TestCase
             'file2' => $file2,
             'file3' => $file3,
         ], [], '[{"method":"POST","relative_url":"me/photos","body":"message=My cat photo","attached_files":"file1 ,file2"},{"method":"POST","relative_url":"me/photos","body":"message=My dog photo","attached_files":"file3"}]');
-        $batchRequest = new BatchRequest($httpKernel);
+        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -138,7 +163,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($this->httpKernel);
+        $batchRequest = new BatchRequest($this->httpKernel, new RequestParser(), new TransactionFactory());
         $jsonResponse = $batchRequest->handle($request);
 
         $this->assertSame($jsonResponse->getStatusCode(), 200);
@@ -161,7 +186,7 @@ class SimpleTest extends TestCase
             $request = new Request([], [
                 'include_headers' => 'false',
             ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-            $batchRequest = new BatchRequest($httpKernel, $rateLimiter);
+            $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory(), $rateLimiter);
             $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
             $response = $batchRequest->handle($request);
             $this->assertSame(Response::HTTP_TOO_MANY_REQUESTS, $response->getStatusCode(), $response->getContent());
