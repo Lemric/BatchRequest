@@ -11,32 +11,23 @@
 
 namespace Lemric\BatchRequest;
 
-use Assert\Assertion;
-use Assert\AssertionFailedException;
-use JsonException;
-use Symfony\Component\HttpFoundation\{HeaderBag, JsonResponse, Request, Response};
+use Symfony\Component\HttpFoundation\{JsonResponse, Request};
 use Symfony\Component\HttpKernel\{HttpKernelInterface};
 use Symfony\Component\RateLimiter\LimiterInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
-use Throwable;
-use Generator;
-use function array_map;
-use function end;
-use function is_array;
-use function json_decode;
-use function json_encode;
-use const JSON_THROW_ON_ERROR;
 
 final class BatchRequest
 {
     private ?LimiterInterface $limiter = null;
-
+    private readonly RequestParser $requestParser;
+    private readonly TransactionFactory $transactionFactory;
     public function __construct(
         private readonly HttpKernelInterface $httpKernel,
-        private readonly RequestParser $requestParser,
-        private readonly TransactionFactory $transactionFactory,
         private readonly ?RateLimiterFactory $rateLimiterFactory = null
-    ) {}
+    ) {
+        $this->requestParser = new RequestParser();
+        $this->transactionFactory = new TransactionFactory();
+    }
 
     public function handle(Request $request): JsonResponse
     {
