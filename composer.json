@@ -39,7 +39,7 @@
     "symfony/http-client": ">=5.1",
     "symfony/http-kernel": ">=5.1",
     "symfony/polyfill-php83": "^v1.30.0",
-    "beberlei/assert": "^v3"
+    "beberlei/assert": "^3.3"
   },
   "suggest": {
     "symfony/rate-limiter": "A \"rate limiter\" controls how frequently some event (e.g. an HTTP request or a login attempt) is allowed to happen."

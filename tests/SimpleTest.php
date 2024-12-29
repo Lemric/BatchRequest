@@ -59,7 +59,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($httpKernel);
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -75,7 +75,7 @@ class SimpleTest extends TestCase
         $request->headers->add([
             'content-type' => 'application/json',
         ]);
-        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($httpKernel);
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -104,7 +104,7 @@ class SimpleTest extends TestCase
         $request->headers->add([
             'content-type' => 'application/json',
         ]);
-        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($httpKernel);
         $currentDate = (new DateTime('NOW', new DateTimeZone('GMT')))->format('D, d M Y H:i:s') . ' GMT';
         $this->assertSame(sprintf('[{"code":200,"body":[],"headers":{"cache-control":"no-cache, private","date":"%s","content-type":"application\/json"}},{"code":200,"body":[],"headers":{"cache-control":"no-cache, private","date":"%s","content-type":"application\/json"}}]', $currentDate, $currentDate), $batchRequest->handle($request)->getContent());
     }
@@ -118,7 +118,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($httpKernel);
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -131,7 +131,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"POST","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($httpKernel);
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -151,7 +151,7 @@ class SimpleTest extends TestCase
             'file2' => $file2,
             'file3' => $file3,
         ], [], '[{"method":"POST","relative_url":"me/photos","body":"message=My cat photo","attached_files":"file1 ,file2"},{"method":"POST","relative_url":"me/photos","body":"message=My dog photo","attached_files":"file3"}]');
-        $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($httpKernel);
         $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
     }
 
@@ -163,7 +163,7 @@ class SimpleTest extends TestCase
         $request = new Request([], [
             'include_headers' => 'false',
         ], [], [], [], [], '[{"method":"POST","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-        $batchRequest = new BatchRequest($this->httpKernel, new RequestParser(), new TransactionFactory());
+        $batchRequest = new BatchRequest($this->httpKernel);
         $jsonResponse = $batchRequest->handle($request);
 
         $this->assertSame($jsonResponse->getStatusCode(), 200);
@@ -186,7 +186,7 @@ class SimpleTest extends TestCase
             $request = new Request([], [
                 'include_headers' => 'false',
             ], [], [], [], [], '[{"method":"GET","relative_url":"/"},{"method":"GET","relative_url":"/"}]');
-            $batchRequest = new BatchRequest($httpKernel, new RequestParser(), new TransactionFactory(), $rateLimiter);
+            $batchRequest = new BatchRequest($httpKernel, $rateLimiter);
             $this->assertSame('[{"code":200,"body":[]},{"code":200,"body":[]}]', $batchRequest->handle($request)->getContent());
             $response = $batchRequest->handle($request);
             $this->assertSame(Response::HTTP_TOO_MANY_REQUESTS, $response->getStatusCode(), $response->getContent());

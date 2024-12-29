@@ -11,7 +11,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
-use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\RateLimiter\LimiterInterface;
@@ -66,7 +65,8 @@ class RequestParser
      */
     private function generateBatchResponse(TransitionCollection $transitions, HttpKernelInterface $httpKernel, bool $includeHeaders): Generator
     {
-        foreach ($transitions->map(fn(Transaction $transaction): \Symfony\Component\HttpFoundation\Response => $transaction->handle($httpKernel)) as $response) {
+        $handler = new FiberTransactionHandler();
+        foreach ($transitions->map(fn(Transaction $transaction): Response => $handler->handleTransaction($transaction, $httpKernel)) as $response) {
             Assertion::isInstanceOf($response, Response::class);
             $headers = $this->extractHeaders($response);
             $headers['content-type'] ??= Transaction::JSON_CONTENT_TYPE;
@@ -103,8 +103,11 @@ class RequestParser
         );
     }
 
-    private function decodeJsonContent(string $content): mixed
+    private function decodeJsonContent(array|string $content): mixed
     {
+        if(is_array($content)) {
+            return $content;
+        }
         try {
             return json_decode($content, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {

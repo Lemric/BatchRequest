@@ -45,9 +45,7 @@ class BatchRequestTest extends TestCase
         $argumentResolver = new ArgumentResolver();
         $httpKernel = new HttpKernel($dispatcher, $controllerResolver, new RequestStack(), $argumentResolver);
         $this->batchRequest = new BatchRequest(
-            $httpKernel,
-            new RequestParser(),
-            new TransactionFactory()
+            $httpKernel
         );
     }
 
