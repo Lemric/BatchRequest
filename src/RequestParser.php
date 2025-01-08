@@ -10,6 +10,7 @@ use Symfony\Component\HttpFoundation\HeaderBag;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -24,7 +25,7 @@ class RequestParser
         HttpKernelInterface $httpKernel,
         bool $includeHeaders,
         ?LimiterInterface $limiter
-    ): JsonResponse {
+    ): Response {
         try {
             $transitions = $transactionFactory->create($request);
             $this->checkRequestsLimit($limiter, $transitions);
@@ -46,18 +47,53 @@ class RequestParser
         }
     }
 
-    /**
-     * @throws AssertionFailedException
-     */
-    private function getBatchRequestResponse(TransitionCollection $transitions, HttpKernelInterface $httpKernel, bool $includeHeaders): JsonResponse
+    private function getBatchRequestResponse(TransitionCollection $transitions, HttpKernelInterface $httpKernel, bool $includeHeaders): Response
     {
-        $jsonResponse = new JsonResponse();
-        $jsonResponse->headers->set('Content-Type', Transaction::JSON_CONTENT_TYPE);
+        $response = new StreamedResponse();
+        $response->setCallback(function() use($transitions, $httpKernel, $includeHeaders) {
+            if (function_exists('apache_setenv')) {
+                @apache_setenv('no-gzip', '1');
+            }
+            @ini_set('zlib.output_compression', '0');
+            @ini_set('implicit_flush', '1');
+            while (ob_get_level() > 0) {
+                ob_end_flush();
+            }
+            ob_implicit_flush(true);
+            echo '[';
+            $first = true;
+            $batchSize = 1000;
+            $counter = 0;
+            try {
+                foreach ($this->generateBatchResponse($transitions, $httpKernel, $includeHeaders) as $item) {
+                    if (!$first) {
+                        echo ',';
+                    } else {
+                        $first = false;
+                    }
+                    echo json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    if (++$counter % $batchSize === 0) {
+                        flush();
+                    }
+                }
+            } catch (\Exception $e) {
+                if (!$first) {
+                    echo ',';
+                }
+                echo json_encode(['error' => $e->getMessage()]);
+            }
 
-        $generator = $this->generateBatchResponse($transitions, $httpKernel, $includeHeaders);
-        $jsonResponse->setContent(json_encode(iterator_to_array($generator)));
+            echo ']';
+            flush();
+        });
 
-        return $jsonResponse;
+        $response->headers->set('Content-Type', 'application/json');
+        $response->headers->set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        $response->headers->set('Pragma', 'no-cache');
+        $response->headers->set('Expires', '0');
+        $response->headers->set('Transfer-Encoding', 'chunked');
+
+        return $response;
     }
 
     /**

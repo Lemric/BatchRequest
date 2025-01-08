@@ -11,7 +11,7 @@
 
 namespace Lemric\BatchRequest;
 
-use Symfony\Component\HttpFoundation\{JsonResponse, Request};
+use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
 use Symfony\Component\HttpKernel\{HttpKernelInterface};
 use Symfony\Component\RateLimiter\LimiterInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
@@ -29,7 +29,7 @@ final class BatchRequest
         $this->transactionFactory = new TransactionFactory();
     }
 
-    public function handle(Request $request): JsonResponse
+    public function handle(Request $request): Response
     {
         $this->initializeLimiter($request);
         $includeHeaders = $this->shouldIncludeHeaders($request);
