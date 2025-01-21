@@ -4,6 +4,7 @@ namespace Lemric\BatchRequest;
 
 use Assert\Assertion;
 use Assert\AssertionFailedException;
+use Exception;
 use Generator;
 use JsonException;
 use Symfony\Component\HttpFoundation\HeaderBag;
@@ -47,53 +48,18 @@ class RequestParser
         }
     }
 
-    private function getBatchRequestResponse(TransitionCollection $transitions, HttpKernelInterface $httpKernel, bool $includeHeaders): Response
+    /**
+     * @throws AssertionFailedException
+     */
+    private function getBatchRequestResponse(TransitionCollection $transitions, HttpKernelInterface $httpKernel, bool $includeHeaders): JsonResponse
     {
-        $response = new StreamedResponse();
-        $response->setCallback(function() use($transitions, $httpKernel, $includeHeaders) {
-            if (function_exists('apache_setenv')) {
-                @apache_setenv('no-gzip', '1');
-            }
-            @ini_set('zlib.output_compression', '0');
-            @ini_set('implicit_flush', '1');
-            while (ob_get_level() > 0) {
-                ob_end_flush();
-            }
-            ob_implicit_flush(true);
-            echo '[';
-            $first = true;
-            $batchSize = 1000;
-            $counter = 0;
-            try {
-                foreach ($this->generateBatchResponse($transitions, $httpKernel, $includeHeaders) as $item) {
-                    if (!$first) {
-                        echo ',';
-                    } else {
-                        $first = false;
-                    }
-                    echo json_encode($item, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                    if (++$counter % $batchSize === 0) {
-                        flush();
-                    }
-                }
-            } catch (\Exception $e) {
-                if (!$first) {
-                    echo ',';
-                }
-                echo json_encode(['error' => $e->getMessage()]);
-            }
+        $jsonResponse = new JsonResponse();
+        $jsonResponse->headers->set('Content-Type', Transaction::JSON_CONTENT_TYPE);
 
-            echo ']';
-            flush();
-        });
+        $generator = $this->generateBatchResponse($transitions, $httpKernel, $includeHeaders);
+        $jsonResponse->setContent(json_encode(iterator_to_array($generator)));
 
-        $response->headers->set('Content-Type', 'application/json');
-        $response->headers->set('Cache-Control', 'no-cache, no-store, must-revalidate');
-        $response->headers->set('Pragma', 'no-cache');
-        $response->headers->set('Expires', '0');
-        $response->headers->set('Transfer-Encoding', 'chunked');
-
-        return $response;
+        return $jsonResponse;
     }
 
     /**
@@ -101,8 +67,7 @@ class RequestParser
      */
     private function generateBatchResponse(TransitionCollection $transitions, HttpKernelInterface $httpKernel, bool $includeHeaders): Generator
     {
-        $handler = new FiberTransactionHandler();
-        foreach ($transitions->map(fn(Transaction $transaction): Response => $handler->handleTransaction($transaction, $httpKernel)) as $response) {
+        foreach ($transitions->map(fn(Transaction $transaction): Response => $transaction->handle($httpKernel)) as $response) {
             Assertion::isInstanceOf($response, Response::class);
             $headers = $this->extractHeaders($response);
             $headers['content-type'] ??= Transaction::JSON_CONTENT_TYPE;
