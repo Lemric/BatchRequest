@@ -3,3 +3,4 @@ LemricBatchRequest.iml
 vendor
 *.lock
 *.cache
+coverage

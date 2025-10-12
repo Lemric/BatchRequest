@@ -12,48 +12,48 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
-use Symfony\Component\HttpFoundation\{Request, Response};
-use Symfony\Component\HttpKernel\{HttpKernelInterface};
-use Symfony\Component\RateLimiter\{LimiterInterface, RateLimiterFactory};
+use Lemric\BatchRequest\Bridge\Symfony\SymfonyBatchRequestFacade;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 
 /**
- * Class BatchRequest.
+ * Backward compatibility wrapper for v1.x API.
+ *
+ * @deprecated Use SymfonyBatchRequestFacade instead. This class will be removed in v3.0.
  */
 final class BatchRequest
 {
-    private readonly RequestParser $requestParser;
-
-    private readonly TransactionFactory $transactionFactory;
-
-    private ?LimiterInterface $limiter = null;
+    private readonly SymfonyBatchRequestFacade $facade;
 
     public function __construct(
-        private readonly HttpKernelInterface $httpKernel,
-        private readonly ?RateLimiterFactory $rateLimiterFactory = null,
+        HttpKernelInterface $httpKernel,
+        ?RateLimiterFactory $rateLimiterFactory = null,
     ) {
-        $this->requestParser = new RequestParser();
-        $this->transactionFactory = new TransactionFactory();
+        @trigger_error(
+            sprintf(
+                'The "%s" class is deprecated since version 2.0 and will be removed in 3.0. ' .
+                'Use "%s" instead.',
+                self::class,
+                SymfonyBatchRequestFacade::class
+            ),
+            E_USER_DEPRECATED
+        );
+
+        $this->facade = new SymfonyBatchRequestFacade(
+            $httpKernel,
+            $rateLimiterFactory
+        );
     }
 
+    /**
+     * Handles a batch request.
+     *
+     * @deprecated Use SymfonyBatchRequestFacade::handle() instead
+     */
     public function handle(Request $request): Response
     {
-        $this->initializeLimiter($request);
-        $includeHeaders = $this->shouldIncludeHeaders($request);
-
-        return $this->requestParser->parse($request, $this->transactionFactory, $this->httpKernel, $includeHeaders, $this->limiter);
-    }
-
-    private function initializeLimiter(Request $request): void
-    {
-        $this->limiter = $this->rateLimiterFactory?->create($request->getClientIp());
-    }
-
-    private function shouldIncludeHeaders(Request $request): bool
-    {
-        if ($request->query->getBoolean('include_headers')) {
-            return true;
-        }
-
-        return $request->request->getBoolean('include_headers');
+        return $this->facade->handle($request);
     }
 }

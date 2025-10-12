@@ -12,53 +12,62 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
-use Exception;
-use ReflectionClass;
-use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
+use JsonException;
 
-use function array_map;
-use function explode;
 use function json_encode;
 
-final class Transaction
+use const JSON_THROW_ON_ERROR;
+
+/**
+ * Immutable value object representing a single transaction.
+ *
+ * @psalm-immutable
+ */
+final readonly class Transaction implements TransactionInterface
 {
-    private readonly string $content;
-
-    private readonly array $cookies;
-
-    private readonly array $files;
-
-    private readonly string $method;
-
-    private readonly array $parameters;
-
-    private readonly ?SessionInterface $session;
-
-    public const JSON_CONTENT_TYPE = 'application/json';
-
-    public const JSON_WWW_FORM_URLENCODED = 'application/x-www-form-urlencoded';
-
-    private array $headers;
-
-    private array $server;
-
-    private string $uri = '/';
-
+    /**
+     * @param array<string, string|array<string>> $headers
+     * @param array<string, mixed>                $parameters
+     * @param array<string, string>               $cookies
+     * @param array<string, mixed>                $files
+     * @param array<string, mixed>                $serverVariables
+     */
     public function __construct(
-        private readonly array $subRequest,
-        private readonly Request $request,
-        private readonly TransactionParameterParser $parameterParser,
+        private string $method,
+        private string $uri,
+        private array $headers = [],
+        private array $parameters = [],
+        private string $content = '',
+        private array $cookies = [],
+        private array $files = [],
+        private array $serverVariables = [],
     ) {
-        $this->initializeHeaders();
-        $this->initializeSession();
-        $this->initializeCookies();
-        $this->initializeServer();
-        $this->initializeFiles();
-        $this->initializeRequestDetails();
-        $this->parameters = $this->parameterParser->parse($this->subRequest);
-        $this->content = json_encode($this->parameters ?: ($this->subRequest['body'] ?? []));
+    }
+
+    /**
+     * Factory method from raw array data.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @throws JsonException
+     */
+    public static function fromArray(array $data): self
+    {
+        $content = '';
+        if (isset($data['body'])) {
+            $content = is_string($data['body']) ? $data['body'] : json_encode($data['body'], JSON_THROW_ON_ERROR);
+        }
+
+        return new self(
+            method: (string) ($data['method'] ?? 'GET'),
+            uri: (string) ($data['relative_url'] ?? '/'),
+            headers: (array) ($data['headers'] ?? []),
+            parameters: (array) ($data['parameters'] ?? []),
+            content: $content,
+            cookies: (array) ($data['cookies'] ?? []),
+            files: (array) ($data['files'] ?? []),
+            serverVariables: (array) ($data['server'] ?? []),
+        );
     }
 
     public function getContent(): string
@@ -91,35 +100,9 @@ final class Transaction
         return $this->parameters;
     }
 
-    public function getRequest(): Request
+    public function getServerVariables(): array
     {
-        $request = Request::create(
-            uri: $this->uri,
-            method: $this->method,
-            parameters: $this->parameters,
-            cookies: $this->cookies,
-            files: $this->files,
-            server: $this->server,
-            content: $this->content,
-        );
-
-        if ($this->session instanceof SessionInterface) {
-            $request->setSession(session: $this->session);
-        }
-
-        $request->headers->replace(headers: $this->headers);
-
-        return $request;
-    }
-
-    public function getServer(): array
-    {
-        return $this->server;
-    }
-
-    public function getSession(): ?SessionInterface
-    {
-        return $this->session;
+        return $this->serverVariables;
     }
 
     public function getUri(): string
@@ -127,58 +110,73 @@ final class Transaction
         return $this->uri;
     }
 
-    public function handle(HttpKernelInterface $httpKernel): Response
+    /**
+     * Creates a new Transaction with modified content.
+     */
+    public function withContent(string $content): self
     {
-        try {
-            return $httpKernel->handle(request: $this->getRequest(), type: HttpKernelInterface::SUB_REQUEST);
-        } catch (NotFoundHttpException $e) {
-            return $this->createErrorResponse($e, Response::HTTP_NOT_FOUND);
-        } catch (Exception $e) {
-            return $this->createErrorResponse($e, Response::HTTP_INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    private function createErrorResponse(Exception $e, int $status): JsonResponse
-    {
-        return new JsonResponse(
-            ['error' => [
-                'type' => new ReflectionClass($e)->getShortName(),
-                'message' => $e->getMessage(),
-            ]],
-            $status,
+        return new self(
+            $this->method,
+            $this->uri,
+            $this->headers,
+            $this->parameters,
+            $content,
+            $this->cookies,
+            $this->files,
+            $this->serverVariables,
         );
     }
 
-    private function initializeCookies(): void
+    /**
+     * Creates a new Transaction with additional headers.
+     *
+     * @param array<string, string|array<string>> $headers
+     */
+    public function withHeaders(array $headers): self
     {
-        $this->cookies = $this->request->cookies->all();
+        return new self(
+            $this->method,
+            $this->uri,
+            array_merge($this->headers, $headers),
+            $this->parameters,
+            $this->content,
+            $this->cookies,
+            $this->files,
+            $this->serverVariables,
+        );
     }
 
-    private function initializeFiles(): void
+    /**
+     * Creates a new Transaction with modified method.
+     */
+    public function withMethod(string $method): self
     {
-        $requestFiles = array_map(fn ($file): string => mb_trim($file), explode(',', $this->subRequest['attached_files'] ?? ''));
-        $this->files = array_intersect_key($this->request->files->all(), array_flip($requestFiles));
+        return new self(
+            $method,
+            $this->uri,
+            $this->headers,
+            $this->parameters,
+            $this->content,
+            $this->cookies,
+            $this->files,
+            $this->serverVariables,
+        );
     }
 
-    private function initializeHeaders(): void
+    /**
+     * Creates a new Transaction with modified URI.
+     */
+    public function withUri(string $uri): self
     {
-        $this->headers = array_merge_recursive($this->request->headers->all(), $this->subRequest['headers'] ?? []);
-    }
-
-    private function initializeRequestDetails(): void
-    {
-        $this->uri = $this->subRequest['relative_url'] ?? '/';
-        $this->method = $this->subRequest['method'] ?? Request::METHOD_GET;
-    }
-
-    private function initializeServer(): void
-    {
-        $this->server = $this->request->server->all();
-        $this->server['IS_INTERNAL'] = true;
-    }
-
-    private function initializeSession(): void
-    {
-        $this->session = $this->request->hasSession() ? $this->request->getSession() : null;
+        return new self(
+            $this->method,
+            $uri,
+            $this->headers,
+            $this->parameters,
+            $this->content,
+            $this->cookies,
+            $this->files,
+            $this->serverVariables,
+        );
     }
 }

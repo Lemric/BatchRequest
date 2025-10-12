@@ -10,12 +10,14 @@
  */
 declare(strict_types=1);
 
-namespace Lemric\BatchRequest;
+namespace Lemric\BatchRequest\Handler;
 
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Lemric\BatchRequest\BatchRequestInterface;
 
-interface TransactionHandlerInterface
+/**
+ * Command: Process a batch request and return consolidated response.
+ */
+interface ProcessBatchRequestCommandInterface
 {
-    public function handleTransaction(Transaction $transaction, HttpKernelInterface $httpKernel): Response;
+    public function getBatchRequest(): BatchRequestInterface;
 }
