@@ -8,17 +8,19 @@
  *
  * @author Dominik Labudzinski <dominik@labudzinski.com>
  */
+declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
 use JsonException;
-use Symfony\Component\HttpFoundation\Request;
+
 use function array_map;
 use function explode;
 use function is_array;
 use function is_string;
 use function json_decode;
 use function parse_str;
+
 use const JSON_THROW_ON_ERROR;
 
 class TransactionParameterParser
@@ -31,20 +33,8 @@ class TransactionParameterParser
     {
         return array_merge(
             $this->getPayloadParameters($subRequest),
-            $this->getQueryParameters($subRequest)
+            $this->getQueryParameters($subRequest),
         );
-    }
-
-    private function getQueryParameters(array $request): array
-    {
-        $urlSections = explode('?', (string)($request['relative_url'] ?? ''));
-        if (count($urlSections) === 2 && isset($urlSections[1]) && $urlSections[1] !== '') {
-            $queryString = $urlSections[1];
-            parse_str($queryString, $parameters);
-            return $parameters;
-        }
-
-        return [];
     }
 
     private function getPayloadParameters(array $request): array
@@ -68,5 +58,18 @@ class TransactionParameterParser
         }
 
         return $parameters;
+    }
+
+    private function getQueryParameters(array $request): array
+    {
+        $urlSections = explode('?', (string) ($request['relative_url'] ?? ''));
+        if (2 === count($urlSections) && isset($urlSections[1]) && '' !== $urlSections[1]) {
+            $queryString = $urlSections[1];
+            parse_str($queryString, $parameters);
+
+            return $parameters;
+        }
+
+        return [];
     }
 }

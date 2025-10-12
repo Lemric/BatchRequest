@@ -1,11 +1,22 @@
 <?php
 
+/**
+ * This file is part of the Lemric package.
+ * (c) Lemric
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ *
+ * @author Dominik Labudzinski <dominik@labudzinski.com>
+ */
+declare(strict_types=1);
+
 namespace Lemric\BatchRequest;
 
 use JsonException;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\{Request, Response};
 use Symfony\Component\HttpKernel\Exception\HttpException;
+
+use const JSON_THROW_ON_ERROR;
 
 class TransactionFactory
 {
@@ -20,7 +31,7 @@ class TransactionFactory
             return new TransitionCollection(
                 json_decode($content, true, 512, JSON_THROW_ON_ERROR),
                 $request,
-                new TransactionParameterParser()
+                new TransactionParameterParser(),
             );
         }
 

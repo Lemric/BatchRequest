@@ -8,51 +8,48 @@
  *
  * @author Dominik Labudzinski <dominik@labudzinski.com>
  */
+declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
 use Exception;
-use JsonException;
 use ReflectionClass;
 use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response, Session\SessionInterface};
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
-use function array_merge;
+
 use function array_map;
 use function explode;
-use function json_decode;
 use function json_encode;
-use function parse_str;
-use const JSON_THROW_ON_ERROR;
 
 final class Transaction
 {
+    private readonly string $content;
+
+    private readonly array $cookies;
+
+    private readonly array $files;
+
+    private readonly string $method;
+
+    private readonly array $parameters;
+
+    private readonly ?SessionInterface $session;
+
     public const JSON_CONTENT_TYPE = 'application/json';
 
     public const JSON_WWW_FORM_URLENCODED = 'application/x-www-form-urlencoded';
 
-    private readonly string $method;
-
-    private string $uri = '/';
-
-    private readonly array $parameters;
-
-    private readonly string $content;
-
-    private readonly array $files;
-
-    private readonly ?SessionInterface $session;
-
-    private readonly array $cookies;
+    private array $headers;
 
     private array $server;
 
-    private array $headers;
+    private string $uri = '/';
 
     public function __construct(
         private readonly array $subRequest,
         private readonly Request $request,
-        private readonly TransactionParameterParser $parameterParser
+        private readonly TransactionParameterParser $parameterParser,
     ) {
         $this->initializeHeaders();
         $this->initializeSession();
@@ -64,37 +61,70 @@ final class Transaction
         $this->content = json_encode($this->parameters ?: ($this->subRequest['body'] ?? []));
     }
 
-    private function initializeHeaders(): void
+    public function getContent(): string
     {
-        $this->headers = array_merge_recursive($this->request->headers->all(), $this->subRequest['headers'] ?? []);
+        return $this->content;
     }
 
-    private function initializeSession(): void
+    public function getCookies(): array
     {
-        $this->session = $this->request->hasSession() ? $this->request->getSession() : null;
+        return $this->cookies;
     }
 
-    private function initializeCookies(): void
+    public function getFiles(): array
     {
-        $this->cookies = $this->request->cookies->all();
+        return $this->files;
     }
 
-    private function initializeServer(): void
+    public function getHeaders(): array
     {
-        $this->server = $this->request->server->all();
-        $this->server['IS_INTERNAL'] = true;
+        return $this->headers;
     }
 
-    private function initializeFiles(): void
+    public function getMethod(): string
     {
-        $requestFiles = array_map(fn($file): string => trim($file), explode(',', $this->subRequest['attached_files'] ?? ''));
-        $this->files = array_intersect_key($this->request->files->all(), array_flip($requestFiles));
+        return $this->method;
     }
 
-    private function initializeRequestDetails(): void
+    public function getParameters(): array
     {
-        $this->uri = $this->subRequest['relative_url'] ?? '/';
-        $this->method = $this->subRequest['method'] ?? Request::METHOD_GET;
+        return $this->parameters;
+    }
+
+    public function getRequest(): Request
+    {
+        $request = Request::create(
+            uri: $this->uri,
+            method: $this->method,
+            parameters: $this->parameters,
+            cookies: $this->cookies,
+            files: $this->files,
+            server: $this->server,
+            content: $this->content,
+        );
+
+        if ($this->session instanceof SessionInterface) {
+            $request->setSession(session: $this->session);
+        }
+
+        $request->headers->replace(headers: $this->headers);
+
+        return $request;
+    }
+
+    public function getServer(): array
+    {
+        return $this->server;
+    }
+
+    public function getSession(): ?SessionInterface
+    {
+        return $this->session;
+    }
+
+    public function getUri(): string
+    {
+        return $this->uri;
     }
 
     public function handle(HttpKernelInterface $httpKernel): Response
@@ -112,49 +142,43 @@ final class Transaction
     {
         return new JsonResponse(
             ['error' => [
-                'type' => (new ReflectionClass($e))->getShortName(),
+                'type' => new ReflectionClass($e)->getShortName(),
                 'message' => $e->getMessage(),
             ]],
-            $status
+            $status,
         );
     }
 
-    public function getRequest(): Request
+    private function initializeCookies(): void
     {
-        $request = Request::create(
-            uri: $this->uri,
-            method: $this->method,
-            parameters: $this->parameters,
-            cookies: $this->cookies,
-            files: $this->files,
-            server: $this->server,
-            content: $this->content
-        );
-
-        if ($this->session instanceof SessionInterface) {
-            $request->setSession(session: $this->session);
-        }
-
-        $request->headers->replace(headers: $this->headers);
-
-        return $request;
+        $this->cookies = $this->request->cookies->all();
     }
 
-    public function getMethod(): string { return $this->method; }
+    private function initializeFiles(): void
+    {
+        $requestFiles = array_map(fn ($file): string => mb_trim($file), explode(',', $this->subRequest['attached_files'] ?? ''));
+        $this->files = array_intersect_key($this->request->files->all(), array_flip($requestFiles));
+    }
 
-    public function getUri(): string { return $this->uri; }
+    private function initializeHeaders(): void
+    {
+        $this->headers = array_merge_recursive($this->request->headers->all(), $this->subRequest['headers'] ?? []);
+    }
 
-    public function getContent(): string { return $this->content; }
+    private function initializeRequestDetails(): void
+    {
+        $this->uri = $this->subRequest['relative_url'] ?? '/';
+        $this->method = $this->subRequest['method'] ?? Request::METHOD_GET;
+    }
 
-    public function getFiles(): array { return $this->files; }
+    private function initializeServer(): void
+    {
+        $this->server = $this->request->server->all();
+        $this->server['IS_INTERNAL'] = true;
+    }
 
-    public function getHeaders(): array { return $this->headers; }
-
-    public function getCookies(): array { return $this->cookies; }
-
-    public function getServer(): array { return $this->server; }
-
-    public function getParameters(): array { return $this->parameters; }
-
-    public function getSession(): ?SessionInterface { return $this->session; }
+    private function initializeSession(): void
+    {
+        $this->session = $this->request->hasSession() ? $this->request->getSession() : null;
+    }
 }

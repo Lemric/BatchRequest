@@ -8,6 +8,7 @@
  *
  * @author Dominik Labudzinski <dominik@labudzinski.com>
  */
+declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
@@ -22,19 +23,21 @@ class TransitionCollection implements IteratorAggregate
     private array $transactions;
 
     public function __construct(
-        private readonly array                      $elements,
-        private readonly Request                    $mainRequest,
-        private readonly TransactionParameterParser $parameterParser
+        private readonly array $elements,
+        private readonly Request $mainRequest,
+        private readonly TransactionParameterParser $parameterParser,
     ) {
         $this->initializeTransactions();
     }
 
-    private function initializeTransactions(): void
+    public function getIterator(): Traversable
     {
-        $this->transactions = array_map(
-            fn($subRequest): Transaction => new Transaction($subRequest, $this->mainRequest, $this->parameterParser),
-            $this->elements
-        );
+        return new ArrayIterator($this->transactions);
+    }
+
+    public function getTransactions(): array
+    {
+        return $this->transactions;
     }
 
     public function map(callable $fn): array
@@ -47,13 +50,11 @@ class TransitionCollection implements IteratorAggregate
         return count($this->transactions);
     }
 
-    public function getIterator(): Traversable
+    private function initializeTransactions(): void
     {
-        return new ArrayIterator($this->transactions);
-    }
-
-    public function getTransactions(): array
-    {
-        return $this->transactions;
+        $this->transactions = array_map(
+            fn ($subRequest): Transaction => new Transaction($subRequest, $this->mainRequest, $this->parameterParser),
+            $this->elements,
+        );
     }
 }

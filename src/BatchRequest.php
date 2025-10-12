@@ -8,22 +8,28 @@
  *
  * @author Dominik Labudzinski <dominik@labudzinski.com>
  */
+declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
-use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
+use Symfony\Component\HttpFoundation\{Request, Response};
 use Symfony\Component\HttpKernel\{HttpKernelInterface};
-use Symfony\Component\RateLimiter\LimiterInterface;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\{LimiterInterface, RateLimiterFactory};
 
+/**
+ * Class BatchRequest.
+ */
 final class BatchRequest
 {
-    private ?LimiterInterface $limiter = null;
     private readonly RequestParser $requestParser;
+
     private readonly TransactionFactory $transactionFactory;
+
+    private ?LimiterInterface $limiter = null;
+
     public function __construct(
         private readonly HttpKernelInterface $httpKernel,
-        private readonly ?RateLimiterFactory $rateLimiterFactory = null
+        private readonly ?RateLimiterFactory $rateLimiterFactory = null,
     ) {
         $this->requestParser = new RequestParser();
         $this->transactionFactory = new TransactionFactory();
@@ -47,6 +53,7 @@ final class BatchRequest
         if ($request->query->getBoolean('include_headers')) {
             return true;
         }
+
         return $request->request->getBoolean('include_headers');
     }
 }
