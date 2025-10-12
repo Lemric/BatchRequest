@@ -33,8 +33,9 @@ class LaravelBatchRequestBenchmarkTest extends TestCase
 
     public function testExtraLargeBatchPerformance(): void
     {
+        ini_set('memory_limit', '768M');
         $requestData = [];
-        for ($i = 0; $i < 10000; ++$i) {
+        for ($i = 0; $i < 100000; ++$i) {
             $requestData[] = ['relative_url' => '/api/test', 'method' => 'GET'];
         }
 
@@ -49,9 +50,9 @@ class LaravelBatchRequestBenchmarkTest extends TestCase
         $executionTime = microtime(true) - $startTime;
 
         $this->assertEquals(200, $result->getStatusCode());
-        $this->assertLessThan(2.0, $executionTime, 'Extra large batch (10000 requests) should be processed in under 2s');
+        $this->assertLessThan(2.0, $executionTime, 'Extra large batch (100000 requests) should be processed in under 2s');
 
-        echo PHP_EOL."Laravel Extra Large Batch (10000 requests): {$executionTime}s".PHP_EOL;
+        echo PHP_EOL."Laravel Extra Large Batch (100000 requests): {$executionTime}s".PHP_EOL;
     }
 
     public function testLargeBatchPerformance(): void

@@ -38,8 +38,9 @@ class CoreBatchRequestBenchmarkTest extends TestCase
 
     public function testExtraLargeBatchPerformance(): void
     {
+        ini_set('memory_limit', '128M');
         $requestData = [];
-        for ($i = 0; $i < 10000; ++$i) {
+        for ($i = 0; $i < 100000; ++$i) {
             $requestData[] = ['relative_url' => '/api/test', 'method' => 'GET'];
         }
 
@@ -51,10 +52,10 @@ class CoreBatchRequestBenchmarkTest extends TestCase
         $result = $this->handler->handle($command);
         $executionTime = microtime(true) - $startTime;
 
-        $this->assertEquals(10000, count($result->getResponses()));
-        $this->assertLessThan(2.0, $executionTime, 'Extra large batch (10000 requests) should be processed in under 2s');
+        $this->assertEquals(100000, count($result->getResponses()));
+        $this->assertLessThan(2.0, $executionTime, 'Extra large batch (100000 requests) should be processed in under 2s');
 
-        echo PHP_EOL."Core Extra Large Batch (10000 requests): {$executionTime}s".PHP_EOL;
+        echo PHP_EOL."Core Extra Large Batch (100000 requests): {$executionTime}s".PHP_EOL;
     }
 
     public function testLargeBatchPerformance(): void
