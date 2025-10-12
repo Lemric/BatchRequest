@@ -10,19 +10,7 @@
  */
 declare(strict_types=1);
 
-namespace Lemric\BatchRequest\Parser;
+use DG\BypassFinals;
 
-/**
- * Represents a single token from the tokenizer.
- *
- * @psalm-immutable
- */
-final readonly class Token
-{
-    public function __construct(
-        public TokenType $type,
-        public mixed $value,
-        public int $position,
-    ) {
-    }
-}
+require dirname(__DIR__).'/vendor/autoload.php';
+BypassFinals::enable();

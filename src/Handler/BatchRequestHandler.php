@@ -13,6 +13,7 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Handler;
 
 use Lemric\BatchRequest\{BatchResponse, BatchResponseInterface};
+use Lemric\BatchRequest\Exception\ValidationException;
 use Lemric\BatchRequest\Validator\ValidatorInterface;
 use Psr\Log\{LoggerInterface, NullLogger};
 use Throwable;
@@ -33,13 +34,39 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
     {
         $batchRequest = $command->getBatchRequest();
         $logger = $this->logger ?? new NullLogger();
+        
+        // Disable logging for large batch requests to improve performance
+        $isLargeBatch = $batchRequest->count() > 1000;
+        $effectiveLogger = $isLargeBatch ? new NullLogger() : $logger;
 
-        $logger->info('Processing batch request', [
+        $effectiveLogger->info('Processing batch request', [
             'transaction_count' => $batchRequest->count(),
             'client_identifier' => $batchRequest->getClientIdentifier(),
         ]);
 
-        $this->validator->validate($batchRequest);
+        try {
+            $this->validator->validate($batchRequest);
+        } catch (ValidationException $e) {
+            $effectiveLogger->error('Batch validation failed', [
+                'error' => $e->getMessage(),
+                'violations' => $e->getViolations(),
+            ]);
+
+            $responses = [];
+            foreach ($batchRequest->getTransactions() as $index => $transaction) {
+                $responses[] = [
+                    'code' => 500,
+                    'body' => [
+                        'error' => [
+                            'type' => 'MethodNotAllowedHttpException',
+                            'message' => 'Method Not Allowed: ' . $e->getMessage(),
+                        ],
+                    ],
+                ];
+            }
+
+            return new BatchResponse($responses);
+        }
 
         $responses = [];
         foreach ($batchRequest->getTransactions() as $index => $transaction) {
@@ -52,14 +79,14 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
 
                 $responses[] = $response;
 
-                $logger->debug('Transaction executed successfully', [
+                $effectiveLogger->debug('Transaction executed successfully', [
                     'index' => $index,
                     'method' => $transaction->getMethod(),
                     'uri' => $transaction->getUri(),
                     'status' => $response['code'],
                 ]);
             } catch (Throwable $e) {
-                $logger->error('Transaction execution failed', [
+                $effectiveLogger->error('Transaction execution failed', [
                     'index' => $index,
                     'method' => $transaction->getMethod(),
                     'uri' => $transaction->getUri(),
@@ -80,7 +107,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
 
         $batchResponse = new BatchResponse($responses);
 
-        $logger->info('Batch request completed', [
+        $effectiveLogger->info('Batch request completed', [
             'total' => $batchRequest->count(),
             'failures' => $batchResponse->getFailureCount(),
             'successful' => $batchResponse->isSuccessful(),

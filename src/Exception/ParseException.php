@@ -27,10 +27,4 @@ class ParseException extends BatchRequestException
         return new self(sprintf('Malformed batch request: %s', $reason));
     }
 
-    public static function unexpectedToken(string $expected, string $actual, int $position): self
-    {
-        return new self(
-            sprintf('Expected token "%s" but got "%s" at position %d', $expected, $actual, $position),
-        );
-    }
 }

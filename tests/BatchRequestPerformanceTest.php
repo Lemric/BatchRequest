@@ -1,12 +1,8 @@
 <?php
 
 namespace Lemric\BatchRequest\Tests;
-error_reporting(E_ALL & ~E_DEPRECATED);
 
 use Lemric\BatchRequest\BatchRequest;
-use Lemric\BatchRequest\TransactionParameterParser;
-use Lemric\BatchRequest\RequestParser;
-use Lemric\BatchRequest\TransactionFactory;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -19,28 +15,32 @@ class BatchRequestPerformanceTest extends TestCase
     protected function setUp(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
-        $this->batchRequest = new BatchRequest(
-            $httpKernel
-        );
+        $httpKernel->method('handle')->willReturn(new Response('[]', 200));
+        
+        $this->batchRequest = new BatchRequest($httpKernel);
     }
 
     public function testHandleLargeBatchRequest(): void
     {
         $startTime = microtime(true);
-        ini_set('memory_limit', '2048M');
+        ini_set('memory_limit', '1024M');
+
         $requestData = [];
-        for ($i = 0; $i < 100000; $i++) {
+        for ($i = 0; $i < 100000; ++$i) {
             $requestData[] = ['relative_url' => '/', 'method' => 'GET'];
         }
 
-        $request = new Request([], [], [], [], [], [], json_encode($requestData));
+        $request = new Request([], [], [], [], [], ['REQUEST_METHOD' => 'POST'], json_encode($requestData));
         $response = $this->batchRequest->handle($request);
 
         $this->assertSame(Response::HTTP_OK, $response->getStatusCode(), $response->getContent());
 
         $endTime = microtime(true);
         $executionTime = $endTime - $startTime;
-        echo 'Batch requests ' . count($requestData) . PHP_EOL;
-        $this->assertLessThan(5, $executionTime, 'Batch request processing took too long');
+
+        echo PHP_EOL . 'Batch requests ' . count($requestData) . PHP_EOL;
+        echo 'Execution time: ' . $executionTime . 's' . PHP_EOL;
+
+        $this->assertLessThan(1, $executionTime, 'Batch request processing took too long');
     }
 }

@@ -31,7 +31,7 @@ interface ExecutionStrategyInterface
      *
      * @param array<int, TransactionInterface> $transactions
      *
-     * @return TransactionInterface
+     * @return array<int, array<int, TransactionInterface>>
      */
     public function groupTransactions(array $transactions): array;
 }

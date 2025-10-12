@@ -178,3 +178,42 @@ Lemric\BatchRequest\BatchRequest: ~
     bind: <-- Only if used syfmony/rate-limiter
         $rateLimiterFactory: '@limiter.authenticated_api' <-- Use proper configuration service name
 ```
+
+## Example for Laravel
+### Controller
+```php
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Lemric\BatchRequest\Bridge\Laravel\LaravelBatchRequestFacade;
+
+class BatchController extends Controller
+{
+    public function __construct(
+        private LaravelBatchRequestFacade $batchRequest
+    ) {}
+
+    public function handle(Request $request): JsonResponse
+    {
+        return $this->batchRequest->handle($request);
+    }
+}
+```
+
+### config/app.php
+```php
+'providers' => [
+    // ...
+    Lemric\BatchRequest\Bridge\Laravel\LaravelServiceProvider::class,
+],
+```
+
+### config/batch-request.php
+```php
+return [
+    'max_batch_size' => env('BATCH_REQUEST_MAX_SIZE', 50),
+];
+```

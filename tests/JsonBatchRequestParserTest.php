@@ -14,7 +14,6 @@ namespace Lemric\BatchRequest\Tests\Parser;
 
 use Lemric\BatchRequest\Exception\ParseException;
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
-use Lemric\BatchRequest\Parser\Tokenizer\JsonTokenizer;
 use PHPUnit\Framework\TestCase;
 
 final class JsonBatchRequestParserTest extends TestCase
@@ -23,7 +22,7 @@ final class JsonBatchRequestParserTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->parser = new JsonBatchRequestParser(new JsonTokenizer());
+        $this->parser = new JsonBatchRequestParser();
     }
 
     public function testParseComplexBatchRequest(): void

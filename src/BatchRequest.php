@@ -19,13 +19,13 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 
 /**
- * Backward compatibility wrapper for v1.x API.
+ * Backward compatibility wrapper for v2.x API.
  *
- * @deprecated Use SymfonyBatchRequestFacade instead. This class will be removed in v3.0.
+ * @deprecated Use SymfonyBatchRequestFacade instead. This class will be removed in v3.1.
  */
-final class BatchRequest
+final readonly class BatchRequest
 {
-    private readonly SymfonyBatchRequestFacade $facade;
+    private SymfonyBatchRequestFacade $facade;
 
     public function __construct(
         HttpKernelInterface $httpKernel,
@@ -33,7 +33,7 @@ final class BatchRequest
     ) {
         @trigger_error(
             sprintf(
-                'The "%s" class is deprecated since version 2.0 and will be removed in 3.0. ' .
+                'The "%s" class is deprecated since version 2.0 and will be removed in 3.1. ' .
                 'Use "%s" instead.',
                 self::class,
                 SymfonyBatchRequestFacade::class

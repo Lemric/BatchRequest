@@ -58,15 +58,44 @@ final readonly class Transaction implements TransactionInterface
             $content = is_string($data['body']) ? $data['body'] : json_encode($data['body'], JSON_THROW_ON_ERROR);
         }
 
+        $headers = [];
+        foreach ((array) ($data['headers'] ?? []) as $key => $value) {
+            if (is_array($value)) {
+                $headers[(string) $key] = $value;
+            } else {
+                $headers[(string) $key] = (string) $value;
+            }
+        }
+        
+        $parameters = [];
+        foreach ((array) ($data['parameters'] ?? []) as $key => $value) {
+            $parameters[(string) $key] = $value;
+        }
+        
+        $cookies = [];
+        foreach ((array) ($data['cookies'] ?? []) as $key => $value) {
+            $cookies[(string) $key] = (string) $value;
+        }
+        
+        $files = [];
+        foreach ((array) ($data['files'] ?? []) as $key => $value) {
+            $files[(string) $key] = $value;
+        }
+        
+        $serverVariables = [];
+        foreach ((array) ($data['server'] ?? []) as $key => $value) {
+            $serverVariables[(string) $key] = $value;
+        }
+
         return new self(
             method: (string) ($data['method'] ?? 'GET'),
             uri: (string) ($data['relative_url'] ?? '/'),
-            headers: (array) ($data['headers'] ?? []),
-            parameters: (array) ($data['parameters'] ?? []),
+            headers: $headers,
+            parameters: $parameters,
             content: $content,
-            cookies: (array) ($data['cookies'] ?? []),
-            files: (array) ($data['files'] ?? []),
-            serverVariables: (array) ($data['server'] ?? []),
+            cookies: $cookies,
+            files: $files,
+            serverVariables: $serverVariables,
         );
     }
 

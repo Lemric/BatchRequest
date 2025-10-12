@@ -30,18 +30,19 @@ use function str_contains;
 use const JSON_ERROR_NONE;
 
 /**
- * Parses JSON batch requests using tokenization for enhanced security.
+ * Parses JSON batch requests efficiently without unnecessary tokenization.
  */
 final readonly class JsonBatchRequestParser implements ParserInterface
 {
-    public function __construct(
-        private TokenizerInterface $tokenizer,
-    ) {
+    public function __construct()
+    {
     }
 
     public function parse(string $content, array $context = []): BatchRequestInterface
     {
-        $this->tokenizer->tokenize($content);
+        if ('' === $content) {
+            throw ParseException::malformedRequest('Empty content');
+        }
 
         $data = json_decode($content, true);
         if (JSON_ERROR_NONE !== json_last_error()) {
@@ -52,10 +53,13 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             throw ParseException::malformedRequest('Root element must be an array');
         }
 
-        $transactions = array_map(
-            fn (array $item): Transaction => $this->parseTransaction($item, $context),
-            $data
-        );
+        $transactions = [];
+        foreach ($data as $item) {
+            if (is_array($item)) {
+                /** @var array<string, mixed> $item */
+                $transactions[] = $this->parseTransaction($item, $context);
+            }
+        }
 
         return new BatchRequest(
             transactions: $transactions,
@@ -81,13 +85,18 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         $parameters = $this->extractParameters($data);
         $content = $this->prepareContent($data, $parameters);
 
+        $cookies = [];
+        foreach ((array) ($context['cookies'] ?? []) as $key => $value) {
+            $cookies[(string) $key] = (string) $value;
+        }
+
         return new Transaction(
             method: (string) ($data['method'] ?? 'GET'),
             uri: $this->extractUri($data),
             headers: $this->mergeHeaders($data, $context),
             parameters: $parameters,
             content: $content,
-            cookies: (array) ($context['cookies'] ?? []),
+            cookies: $cookies,
             files: $this->extractFiles($data, $context),
             serverVariables: $this->extractServerVariables($context),
         );
@@ -115,7 +124,14 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         $queryParams = $this->extractQueryParameters($data);
 
-        return [...$parameters, ...$queryParams];
+        $result = [];
+        foreach ($queryParams as $key => $value) {
+            $result[(string) $key] = $value;
+        }
+        foreach ($parameters as $key => $value) {
+            $result[(string) $key] = $value;
+        }
+        return $result;
     }
 
     /**
@@ -135,7 +151,11 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         [$path, $queryString] = explode('?', $url, 2);
         parse_str($queryString, $parameters);
 
-        return $parameters;
+        $result = [];
+        foreach ($parameters as $key => $value) {
+            $result[(string) $key] = $value;
+        }
+        return $result;
     }
 
     /**
@@ -167,7 +187,22 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         $headers = (array) ($context['headers'] ?? []);
         $transactionHeaders = (array) ($data['headers'] ?? []);
 
-        return [...$headers, ...$transactionHeaders];
+        $result = [];
+        foreach ($headers as $key => $value) {
+            if (is_array($value)) {
+                $result[(string) $key] = $value;
+            } else {
+                $result[(string) $key] = (string) $value;
+            }
+        }
+        foreach ($transactionHeaders as $key => $value) {
+            if (is_array($value)) {
+                $result[(string) $key] = $value;
+            } else {
+                $result[(string) $key] = (string) $value;
+            }
+        }
+        return $result;
     }
 
     /**
@@ -183,7 +218,8 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         }
 
         if ([] !== $parameters) {
-            return json_encode($parameters);
+            $encoded = json_encode($parameters);
+            return $encoded !== false ? $encoded : '';
         }
 
         return '';
@@ -210,11 +246,13 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         $allFiles = (array) ($context['files'] ?? []);
 
-        return array_filter(
-            $allFiles,
-            static fn (string $key): bool => in_array($key, $attachedFileNames, true),
-            ARRAY_FILTER_USE_KEY
-        );
+        $result = [];
+        foreach ($allFiles as $key => $value) {
+            if (in_array((string) $key, $attachedFileNames, true)) {
+                $result[(string) $key] = $value;
+            }
+        }
+        return $result;
     }
 
     /**

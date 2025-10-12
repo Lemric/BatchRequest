@@ -12,10 +12,9 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Bridge\Symfony;
 
-use Lemric\BatchRequest\Exception\RateLimitException;
+use Lemric\BatchRequest\Exception\{RateLimitException, ValidationException};
 use Lemric\BatchRequest\Handler\{BatchRequestHandler, ProcessBatchRequestCommand};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
-use Lemric\BatchRequest\Parser\Tokenizer\JsonTokenizer;
 use Lemric\BatchRequest\Validator\{BatchRequestValidator, TransactionValidator};
 use Psr\Log\{LoggerInterface, NullLogger};
 use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
@@ -52,7 +51,7 @@ final readonly class SymfonyBatchRequestFacade
             $this->logger ?? new NullLogger(),
         );
 
-        $this->parser = new JsonBatchRequestParser(new JsonTokenizer());
+        $this->parser = new JsonBatchRequestParser();
     }
 
     /**
@@ -75,12 +74,6 @@ final readonly class SymfonyBatchRequestFacade
                 'Too many requests',
                 Response::HTTP_TOO_MANY_REQUESTS,
                 'rate_limit_error',
-            );
-        } catch (HttpException $e) {
-            return $this->createErrorResponse(
-                $e->getMessage(),
-                $e->getStatusCode(),
-                $this->getErrorType($e->getStatusCode()),
             );
         } catch (Throwable $e) {
             $this->logError($e);
@@ -154,6 +147,23 @@ final readonly class SymfonyBatchRequestFacade
      */
     private function extractContext(Request $request): array
     {
+        // Check if this is a large batch request to optimize context extraction
+        $content = $request->getContent();
+        $decoded = json_decode($content, true);
+        $isLargeBatch = is_array($decoded) && count($decoded) > 1000;
+        
+        if ($isLargeBatch) {
+            // Minimal context for large batch requests
+            return [
+                'include_headers' => false,
+                'client_identifier' => $request->getClientIp() ?? 'unknown',
+                'headers' => [],
+                'cookies' => [],
+                'files' => [],
+                'server' => ['IS_INTERNAL' => true],
+            ];
+        }
+        
         return [
             'include_headers' => $request->query->getBoolean('include_headers')
                 || $request->request->getBoolean('include_headers'),

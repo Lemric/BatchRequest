@@ -97,9 +97,15 @@ final readonly class SymfonyTransactionExecutor implements TransactionExecutorIn
      */
     private function extractHeaders(Response $response): array
     {
-        return array_map(function ($values) {
-            return is_array($values) ? end($values) : $values;
-        }, $response->headers->all());
+        $headers = [];
+        foreach ($response->headers->all() as $name => $values) {
+            if (is_array($values)) {
+                $headers[$name] = (string) end($values);
+            } else {
+                $headers[$name] = (string) $values;
+            }
+        }
+        return $headers;
     }
 
     /**
@@ -113,9 +119,10 @@ final readonly class SymfonyTransactionExecutor implements TransactionExecutorIn
         $body = false === $content ? [] : $content;
 
         $contentType = $response->headers->get('Content-Type', '');
-        if (str_contains($contentType, 'application/json')) {
+        if ($contentType !== null && str_contains($contentType, 'application/json')) {
             try {
-                $decoded = json_decode((string) $body, true, 512, JSON_THROW_ON_ERROR);
+                $bodyString = is_string($body) ? $body : '';
+                $decoded = json_decode($bodyString, true, 512, JSON_THROW_ON_ERROR);
                 $body = is_array($decoded) ? $decoded : $body;
             } catch (Throwable) {
                 // Keep original body if JSON decode fails

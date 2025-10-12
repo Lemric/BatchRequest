@@ -32,17 +32,21 @@
     "friendsofphp/php-cs-fixer": "^3.60",
     "symfony/phpunit-bridge": ">=5.1",
     "symfony/routing": "^7.2",
-    "phpstan/phpstan": "^2.1.31"
-  },
-  "require": {
-    "php": ">=8.2",
+    "phpstan/phpstan": "^2.1.31",
+    "symfony/rate-limiter": "^7.3",
+    "dg/bypass-finals": "^1.9",
     "symfony/http-client": ">=5.1",
     "symfony/http-kernel": ">=5.1",
     "symfony/polyfill-php83": "^v1.30.0",
+    "illuminate/http": "^12.33"
+  },
+  "require": {
+    "php": ">=8.2",
     "beberlei/assert": "^3.3"
   },
   "suggest": {
-    "symfony/rate-limiter": "A \"rate limiter\" controls how frequently some event (e.g. an HTTP request or a login attempt) is allowed to happen."
+    "symfony/rate-limiter": "A \"rate limiter\" controls how frequently some event (e.g. an HTTP request or a login attempt) is allowed to happen.",
+    "illuminate/support": "Required for Laravel integration (^10.0|^11.0)"
   },
   "scripts": {
     "rector": "vendor/bin/rector"

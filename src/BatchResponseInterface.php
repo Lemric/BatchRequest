@@ -27,7 +27,7 @@ interface BatchResponseInterface
     /**
      * Returns response for a specific transaction index.
      *
-     * @return array{code: int, body: mixed, headers?: array<string, string>>|null
+     * @return array{code: int, body: mixed, headers?: array<string, string>}|null
      */
     public function getResponse(int $index): ?array;
 
