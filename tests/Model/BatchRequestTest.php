@@ -29,13 +29,23 @@ final class BatchRequestTest extends TestCase
             transactions: $transactions,
             includeHeaders: true,
             clientIdentifier: '127.0.0.1',
-            metadata: ['custom' => 'value']
+            metadata: ['custom' => 'value'],
         );
 
         $this->assertSame($transactions, $batchRequest->getTransactions());
         $this->assertTrue($batchRequest->shouldIncludeHeaders());
         $this->assertSame('127.0.0.1', $batchRequest->getClientIdentifier());
         $this->assertSame(['custom' => 'value'], $batchRequest->getMetadata());
+    }
+
+    public function testCountableInterface(): void
+    {
+        $batchRequest = new BatchRequest([
+            new Transaction('GET', '/api/posts'),
+            new Transaction('POST', '/api/users'),
+        ]);
+
+        $this->assertCount(2, $batchRequest);
     }
 
     public function testCountReturnsNumberOfTransactions(): void
@@ -48,12 +58,19 @@ final class BatchRequestTest extends TestCase
         $this->assertSame(2, $batchRequest->count());
     }
 
-    public function testIsEmptyReturnsTrueForEmptyBatch(): void
+    public function testImmutability(): void
     {
-        $batchRequest = new BatchRequest([]);
+        $transaction = new Transaction('GET', '/api/posts');
+        $batchRequest = new BatchRequest([$transaction]);
 
-        $this->assertTrue($batchRequest->isEmpty());
-        $this->assertSame(0, $batchRequest->count());
+        $modified1 = $batchRequest->withIncludeHeaders(true);
+        $modified2 = $batchRequest->withMetadata(['test' => 'value']);
+
+        $this->assertNotSame($batchRequest, $modified1);
+        $this->assertNotSame($batchRequest, $modified2);
+        $this->assertNotSame($modified1, $modified2);
+        $this->assertFalse($batchRequest->shouldIncludeHeaders());
+        $this->assertSame([], $batchRequest->getMetadata());
     }
 
     public function testIsEmptyReturnsFalseForNonEmptyBatch(): void
@@ -65,45 +82,12 @@ final class BatchRequestTest extends TestCase
         $this->assertFalse($batchRequest->isEmpty());
     }
 
-    public function testWithIncludeHeadersCreatesNewInstance(): void
+    public function testIsEmptyReturnsTrueForEmptyBatch(): void
     {
-        $original = new BatchRequest([], false);
-        $modified = $original->withIncludeHeaders(true);
+        $batchRequest = new BatchRequest([]);
 
-        $this->assertNotSame($original, $modified);
-        $this->assertFalse($original->shouldIncludeHeaders());
-        $this->assertTrue($modified->shouldIncludeHeaders());
-    }
-
-    public function testWithTransactionReplacesTransactionAtIndex(): void
-    {
-        $transaction1 = new Transaction('GET', '/api/posts');
-        $transaction2 = new Transaction('POST', '/api/users');
-        $transaction3 = new Transaction('DELETE', '/api/posts/1');
-
-        $original = new BatchRequest([$transaction1, $transaction2]);
-        $modified = $original->withTransaction(1, $transaction3);
-
-        $this->assertNotSame($original, $modified);
-        $this->assertSame($transaction1, $original->getTransactions()[0]);
-        $this->assertSame($transaction2, $original->getTransactions()[1]);
-        $this->assertSame($transaction1, $modified->getTransactions()[0]);
-        $this->assertSame($transaction3, $modified->getTransactions()[1]);
-    }
-
-    public function testWithMetadataMergesMetadata(): void
-    {
-        $original = new BatchRequest(
-            [],
-            false,
-            '',
-            ['key1' => 'value1']
-        );
-
-        $modified = $original->withMetadata(['key2' => 'value2']);
-
-        $this->assertSame(['key1' => 'value1'], $original->getMetadata());
-        $this->assertSame(['key1' => 'value1', 'key2' => 'value2'], $modified->getMetadata());
+        $this->assertTrue($batchRequest->isEmpty());
+        $this->assertSame(0, $batchRequest->count());
     }
 
     public function testMapAppliesCallbackToEachTransaction(): void
@@ -134,28 +118,44 @@ final class BatchRequestTest extends TestCase
         $this->assertSame(['0: GET', '1: POST'], $result);
     }
 
-    public function testImmutability(): void
+    public function testWithIncludeHeadersCreatesNewInstance(): void
     {
-        $transaction = new Transaction('GET', '/api/posts');
-        $batchRequest = new BatchRequest([$transaction]);
+        $original = new BatchRequest([], false);
+        $modified = $original->withIncludeHeaders(true);
 
-        $modified1 = $batchRequest->withIncludeHeaders(true);
-        $modified2 = $batchRequest->withMetadata(['test' => 'value']);
-
-        $this->assertNotSame($batchRequest, $modified1);
-        $this->assertNotSame($batchRequest, $modified2);
-        $this->assertNotSame($modified1, $modified2);
-        $this->assertFalse($batchRequest->shouldIncludeHeaders());
-        $this->assertSame([], $batchRequest->getMetadata());
+        $this->assertNotSame($original, $modified);
+        $this->assertFalse($original->shouldIncludeHeaders());
+        $this->assertTrue($modified->shouldIncludeHeaders());
     }
 
-    public function testCountableInterface(): void
+    public function testWithMetadataMergesMetadata(): void
     {
-        $batchRequest = new BatchRequest([
-            new Transaction('GET', '/api/posts'),
-            new Transaction('POST', '/api/users'),
-        ]);
+        $original = new BatchRequest(
+            [],
+            false,
+            '',
+            ['key1' => 'value1'],
+        );
 
-        $this->assertCount(2, $batchRequest);
+        $modified = $original->withMetadata(['key2' => 'value2']);
+
+        $this->assertSame(['key1' => 'value1'], $original->getMetadata());
+        $this->assertSame(['key1' => 'value1', 'key2' => 'value2'], $modified->getMetadata());
+    }
+
+    public function testWithTransactionReplacesTransactionAtIndex(): void
+    {
+        $transaction1 = new Transaction('GET', '/api/posts');
+        $transaction2 = new Transaction('POST', '/api/users');
+        $transaction3 = new Transaction('DELETE', '/api/posts/1');
+
+        $original = new BatchRequest([$transaction1, $transaction2]);
+        $modified = $original->withTransaction(1, $transaction3);
+
+        $this->assertNotSame($original, $modified);
+        $this->assertSame($transaction1, $original->getTransactions()[0]);
+        $this->assertSame($transaction2, $original->getTransactions()[1]);
+        $this->assertSame($transaction1, $modified->getTransactions()[0]);
+        $this->assertSame($transaction3, $modified->getTransactions()[1]);
     }
 }

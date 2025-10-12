@@ -12,10 +12,11 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Tests\Bridge\Symfony;
 
+use DateTimeImmutable;
 use Lemric\BatchRequest\Bridge\Symfony\SymfonyBatchRequestFacade;
-use Lemric\BatchRequest\Exception\RateLimitException;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
 use Symfony\Component\HttpKernel\Exception\{BadRequestHttpException, NotFoundHttpException};
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -23,10 +24,11 @@ use Symfony\Component\RateLimiter\{RateLimit, RateLimiterFactory};
 
 final class SymfonyBatchRequestFacadeTest extends TestCase
 {
-    public function testHandleReturnsJsonResponse(): void
+    public function testHandleBadRequestHttpException(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
-        $httpKernel->method('handle')->willReturn(new Response('OK'));
+        $httpKernel->method('handle')
+            ->willThrowException(new BadRequestHttpException('Invalid request'));
 
         $facade = new SymfonyBatchRequestFacade($httpKernel);
 
@@ -36,39 +38,110 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
 
         $response = $facade->handle($request);
 
-        $this->assertInstanceOf(JsonResponse::class, $response);
+        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true);
+        $this->assertIsArray($data);
+        $this->assertArrayHasKey(0, $data);
+        $this->assertSame(400, $data[0]['code']);
     }
 
-    public function testHandleWithRateLimiter(): void
+    public function testHandleExtractsContextFromRequest(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
         $httpKernel->method('handle')->willReturn(new Response('OK'));
 
-        $rateLimit = $this->createMock(RateLimit::class);
-        $rateLimit->method('isAccepted')->willReturn(true);
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
 
-        $rateLimiter = $this->createMock(\Symfony\Component\RateLimiter\LimiterInterface::class);
-        $rateLimiter->method('consume')->willReturn($rateLimit);
+        $request = new Request(
+            ['include_headers' => 'true'],
+            [],
+            [],
+            ['cookie1' => 'value1'],
+            [],
+            [
+                'REMOTE_ADDR' => '192.168.1.1',
+                'HTTP_AUTHORIZATION' => 'Bearer token',
+            ],
+            json_encode([['method' => 'GET', 'relative_url' => '/api/posts']]),
+        );
 
-        $factory = $this->createMock(RateLimiterFactory::class);
-        $factory->method('create')->willReturn($rateLimiter);
+        $response = $facade->handle($request);
 
-        $facade = new SymfonyBatchRequestFacade($httpKernel, $factory);
+        $data = json_decode($response->getContent(), true);
+        $this->assertIsArray($data);
+        $this->assertArrayHasKey('headers', $data[0]);
+    }
 
-        $request = new Request([], [], [], [], [], ['REMOTE_ADDR' => '127.0.0.1'], json_encode([
+    public function testHandleGenericException(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel->method('handle')
+            ->willThrowException(new RuntimeException('Unexpected error'));
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
+
+        $request = new Request([], [], [], [], [], [], json_encode([
             ['method' => 'GET', 'relative_url' => '/api/posts'],
         ]));
 
         $response = $facade->handle($request);
 
         $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true);
+        $this->assertIsArray($data);
+        $this->assertArrayHasKey(0, $data);
+        $this->assertSame(500, $data[0]['code']);
+    }
+
+    public function testHandleLogsErrors(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with('Batch request processing failed', $this->callback(function ($context) {
+                return isset($context['exception'])
+                    && isset($context['message'])
+                    && isset($context['trace']);
+            }));
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel, null, $logger);
+
+        $request = new Request([], [], [], [], [], [], 'invalid json');
+
+        $facade->handle($request);
+    }
+
+    public function testHandleNotFoundHttpException(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel->method('handle')
+            ->willThrowException(new NotFoundHttpException('Not found'));
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
+
+        $request = new Request([], [], [], [], [], [], json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/nonexistent'],
+        ]));
+
+        $response = $facade->handle($request);
+
+        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true);
+        $this->assertIsArray($data);
+        $this->assertArrayHasKey(0, $data);
+        $this->assertSame(404, $data[0]['code']);
     }
 
     public function testHandleRateLimitExceeded(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
 
-        $retryAfter = new \DateTimeImmutable('+1 hour');
+        $retryAfter = new DateTimeImmutable('+1 hour');
         $rateLimit = $this->createMock(RateLimit::class);
         $rateLimit->method('isAccepted')->willReturn(false);
         $rateLimit->method('getRetryAfter')->willReturn($retryAfter);
@@ -94,48 +167,26 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
         $this->assertArrayHasKey('errors', $data);
     }
 
-    public function testHandleWithLogger(): void
+    public function testHandleReturnsJsonResponse(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
         $httpKernel->method('handle')->willReturn(new Response('OK'));
 
-        $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects($this->never())->method('error');
-
-        $facade = new SymfonyBatchRequestFacade($httpKernel, null, $logger);
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
 
         $request = new Request([], [], [], [], [], [], json_encode([
             ['method' => 'GET', 'relative_url' => '/api/posts'],
         ]));
 
-        $facade->handle($request);
+        $response = $facade->handle($request);
+
+        $this->assertInstanceOf(JsonResponse::class, $response);
     }
 
-    public function testHandleLogsErrors(): void
+    public function testHandleSetsCorrectContentType(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
-
-        $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects($this->once())
-            ->method('error')
-            ->with('Batch request processing failed', $this->callback(function ($context) {
-                return isset($context['exception']) &&
-                    isset($context['message']) &&
-                    isset($context['trace']);
-            }));
-
-        $facade = new SymfonyBatchRequestFacade($httpKernel, null, $logger);
-
-        $request = new Request([], [], [], [], [], [], 'invalid json');
-
-        $facade->handle($request);
-    }
-
-    public function testHandleBadRequestHttpException(): void
-    {
-        $httpKernel = $this->createMock(HttpKernelInterface::class);
-        $httpKernel->method('handle')
-            ->willThrowException(new BadRequestHttpException('Invalid request'));
+        $httpKernel->method('handle')->willReturn(new Response('OK'));
 
         $facade = new SymfonyBatchRequestFacade($httpKernel);
 
@@ -145,56 +196,7 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
 
         $response = $facade->handle($request);
 
-        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
-
-        $data = json_decode($response->getContent(), true);
-        $this->assertIsArray($data);
-        $this->assertArrayHasKey(0, $data);
-        $this->assertSame(400, $data[0]['code']);
-    }
-
-    public function testHandleNotFoundHttpException(): void
-    {
-        $httpKernel = $this->createMock(HttpKernelInterface::class);
-        $httpKernel->method('handle')
-            ->willThrowException(new NotFoundHttpException('Not found'));
-
-        $facade = new SymfonyBatchRequestFacade($httpKernel);
-
-        $request = new Request([], [], [], [], [], [], json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/nonexistent'],
-        ]));
-
-        $response = $facade->handle($request);
-
-        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
-
-        $data = json_decode($response->getContent(), true);
-        $this->assertIsArray($data);
-        $this->assertArrayHasKey(0, $data);
-        $this->assertSame(404, $data[0]['code']);
-    }
-
-    public function testHandleGenericException(): void
-    {
-        $httpKernel = $this->createMock(HttpKernelInterface::class);
-        $httpKernel->method('handle')
-            ->willThrowException(new \RuntimeException('Unexpected error'));
-
-        $facade = new SymfonyBatchRequestFacade($httpKernel);
-
-        $request = new Request([], [], [], [], [], [], json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/posts'],
-        ]));
-
-        $response = $facade->handle($request);
-
-        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
-
-        $data = json_decode($response->getContent(), true);
-        $this->assertIsArray($data);
-        $this->assertArrayHasKey(0, $data);
-        $this->assertSame(500, $data[0]['code']);
+        $this->assertSame('application/json', $response->headers->get('Content-Type'));
     }
 
     public function testHandleWithCustomMaxBatchSize(): void
@@ -220,7 +222,24 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
         $this->assertSame(500, $data[0]['code']);
     }
 
-    public function testHandleSetsCorrectContentType(): void
+    public function testHandleWithLogger(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel->method('handle')->willReturn(new Response('OK'));
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->never())->method('error');
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel, null, $logger);
+
+        $request = new Request([], [], [], [], [], [], json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts'],
+        ]));
+
+        $facade->handle($request);
+    }
+
+    public function testHandleWithoutClientIp(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
         $httpKernel->method('handle')->willReturn(new Response('OK'));
@@ -233,44 +252,26 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
 
         $response = $facade->handle($request);
 
-        $this->assertSame('application/json', $response->headers->get('Content-Type'));
+        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
     }
 
-    public function testHandleExtractsContextFromRequest(): void
+    public function testHandleWithRateLimiter(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
         $httpKernel->method('handle')->willReturn(new Response('OK'));
 
-        $facade = new SymfonyBatchRequestFacade($httpKernel);
+        $rateLimit = $this->createMock(RateLimit::class);
+        $rateLimit->method('isAccepted')->willReturn(true);
 
-        $request = new Request(
-            ['include_headers' => 'true'],
-            [],
-            [],
-            ['cookie1' => 'value1'],
-            [],
-            [
-                'REMOTE_ADDR' => '192.168.1.1',
-                'HTTP_AUTHORIZATION' => 'Bearer token',
-            ],
-            json_encode([['method' => 'GET', 'relative_url' => '/api/posts']])
-        );
+        $rateLimiter = $this->createMock(\Symfony\Component\RateLimiter\LimiterInterface::class);
+        $rateLimiter->method('consume')->willReturn($rateLimit);
 
-        $response = $facade->handle($request);
+        $factory = $this->createMock(RateLimiterFactory::class);
+        $factory->method('create')->willReturn($rateLimiter);
 
-        $data = json_decode($response->getContent(), true);
-        $this->assertIsArray($data);
-        $this->assertArrayHasKey('headers', $data[0]);
-    }
+        $facade = new SymfonyBatchRequestFacade($httpKernel, $factory);
 
-    public function testHandleWithoutClientIp(): void
-    {
-        $httpKernel = $this->createMock(HttpKernelInterface::class);
-        $httpKernel->method('handle')->willReturn(new Response('OK'));
-
-        $facade = new SymfonyBatchRequestFacade($httpKernel);
-
-        $request = new Request([], [], [], [], [], [], json_encode([
+        $request = new Request([], [], [], [], [], ['REMOTE_ADDR' => '127.0.0.1'], json_encode([
             ['method' => 'GET', 'relative_url' => '/api/posts'],
         ]));
 

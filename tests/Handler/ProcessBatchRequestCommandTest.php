@@ -19,29 +19,6 @@ use PHPUnit\Framework\TestCase;
 
 final class ProcessBatchRequestCommandTest extends TestCase
 {
-    public function testConstructorSetsBatchRequest(): void
-    {
-        $batchRequest = new BatchRequest([new Transaction('GET', '/api/posts')]);
-        $command = new ProcessBatchRequestCommand($batchRequest);
-
-        $this->assertSame($batchRequest, $command->getBatchRequest());
-    }
-
-    public function testGetBatchRequestReturnsSameInstance(): void
-    {
-        $batchRequest = new BatchRequest([
-            new Transaction('GET', '/api/posts'),
-            new Transaction('POST', '/api/users'),
-        ]);
-
-        $command = new ProcessBatchRequestCommand($batchRequest);
-
-        $result = $command->getBatchRequest();
-
-        $this->assertSame($batchRequest, $result);
-        $this->assertCount(2, $result);
-    }
-
     public function testCommandIsImmutable(): void
     {
         $batchRequest = new BatchRequest([new Transaction('GET', '/api/posts')]);
@@ -50,6 +27,23 @@ final class ProcessBatchRequestCommandTest extends TestCase
         $retrievedBatchRequest = $command->getBatchRequest();
 
         $this->assertSame($batchRequest, $retrievedBatchRequest);
+    }
+
+    public function testCommandPreservesMetadata(): void
+    {
+        $batchRequest = new BatchRequest(
+            [new Transaction('GET', '/api/posts')],
+            true,
+            '127.0.0.1',
+            ['custom' => 'metadata'],
+        );
+
+        $command = new ProcessBatchRequestCommand($batchRequest);
+        $result = $command->getBatchRequest();
+
+        $this->assertTrue($result->shouldIncludeHeaders());
+        $this->assertSame('127.0.0.1', $result->getClientIdentifier());
+        $this->assertSame(['custom' => 'metadata'], $result->getMetadata());
     }
 
     public function testCommandWithEmptyBatchRequest(): void
@@ -76,20 +70,26 @@ final class ProcessBatchRequestCommandTest extends TestCase
         $this->assertCount(100, $command->getBatchRequest());
     }
 
-    public function testCommandPreservesMetadata(): void
+    public function testConstructorSetsBatchRequest(): void
     {
-        $batchRequest = new BatchRequest(
-            [new Transaction('GET', '/api/posts')],
-            true,
-            '127.0.0.1',
-            ['custom' => 'metadata']
-        );
+        $batchRequest = new BatchRequest([new Transaction('GET', '/api/posts')]);
+        $command = new ProcessBatchRequestCommand($batchRequest);
+
+        $this->assertSame($batchRequest, $command->getBatchRequest());
+    }
+
+    public function testGetBatchRequestReturnsSameInstance(): void
+    {
+        $batchRequest = new BatchRequest([
+            new Transaction('GET', '/api/posts'),
+            new Transaction('POST', '/api/users'),
+        ]);
 
         $command = new ProcessBatchRequestCommand($batchRequest);
+
         $result = $command->getBatchRequest();
 
-        $this->assertTrue($result->shouldIncludeHeaders());
-        $this->assertSame('127.0.0.1', $result->getClientIdentifier());
-        $this->assertSame(['custom' => 'metadata'], $result->getMetadata());
+        $this->assertSame($batchRequest, $result);
+        $this->assertCount(2, $result);
     }
 }

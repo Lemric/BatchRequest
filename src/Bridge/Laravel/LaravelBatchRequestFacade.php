@@ -13,8 +13,7 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Bridge\Laravel;
 
 use Illuminate\Contracts\Http\Kernel;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Http\{JsonResponse, Request};
 use Lemric\BatchRequest\Exception\{RateLimitException, ValidationException};
 use Lemric\BatchRequest\Handler\{BatchRequestHandler, ProcessBatchRequestCommand};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
@@ -29,6 +28,7 @@ use Throwable;
 final readonly class LaravelBatchRequestFacade
 {
     private BatchRequestHandler $handler;
+
     private JsonBatchRequestParser $parser;
 
     public function __construct(
@@ -131,4 +131,3 @@ final readonly class LaravelBatchRequestFacade
         ]);
     }
 }
-

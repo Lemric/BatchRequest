@@ -1,24 +1,31 @@
 <?php
 
+/**
+ * This file is part of the Lemric package.
+ * (c) Lemric
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ *
+ * @author Dominik Labudzinski <dominik@labudzinski.com>
+ */
+declare(strict_types=1);
+
 namespace Lemric\BatchRequest\Tests;
 
 error_reporting(E_ALL & ~E_DEPRECATED);
 
 use Lemric\BatchRequest\BatchRequest;
+use PHPUnit\Framework\TestCase;
 use Symfony\Component\EventDispatcher\EventDispatcher;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\RequestStack;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Controller\ArgumentResolver;
-use Symfony\Component\HttpKernel\Controller\ControllerResolver;
+use Symfony\Component\HttpFoundation\{JsonResponse, Request, RequestStack, Response};
+use Symfony\Component\HttpKernel\Controller\{ArgumentResolver, ControllerResolver};
 use Symfony\Component\HttpKernel\EventListener\RouterListener;
 use Symfony\Component\HttpKernel\HttpKernel;
-use PHPUnit\Framework\TestCase;
 use Symfony\Component\Routing\Matcher\UrlMatcher;
-use Symfony\Component\Routing\RequestContext;
-use Symfony\Component\Routing\Route;
-use Symfony\Component\Routing\RouteCollection;
+use Symfony\Component\Routing\{RequestContext, Route, RouteCollection};
+
+use const E_ALL;
+use const E_DEPRECATED;
 
 class BatchRequestTest extends TestCase
 {
@@ -28,9 +35,9 @@ class BatchRequestTest extends TestCase
     {
         $routes = new RouteCollection();
         $routes->add('hello', new Route(path: '/', defaults: [
-            '_controller' => fn(Request $request): Response => new JsonResponse(
-                []
-            )], methods: ['GET']
+            '_controller' => fn (Request $request): Response => new JsonResponse(
+                [],
+            )], methods: ['GET'],
         ));
 
         $matcher = new UrlMatcher($routes, new RequestContext());
@@ -50,29 +57,6 @@ class BatchRequestTest extends TestCase
         restore_error_handler();
     }
 
-    public function testHandleValidRequest(): void
-    {
-        $request = new Request(
-            [],
-            [],
-            [],
-            [],
-            [],
-            ['REQUEST_METHOD' => 'POST'],
-            json_encode([
-                ['relative_url' => '/', 'method' => 'GET']
-            ])
-        );
-
-        $response = $this->batchRequest->handle($request);
-
-        $this->assertInstanceOf(JsonResponse::class, $response);
-        $this->assertSame(Response::HTTP_OK, $response->getStatusCode(), $response->getContent());
-
-        $responseData = json_decode($response->getContent(), true);
-        $this->assertIsArray($responseData);
-    }
-
     public function testHandleInvalidRequest(): void
     {
         $request = new Request(
@@ -83,8 +67,8 @@ class BatchRequestTest extends TestCase
             [],
             ['REQUEST_METHOD' => 'POST'],
             json_encode([
-                ['relative_url' => '/', 'method' => 'INVALID']
-            ])
+                ['relative_url' => '/', 'method' => 'INVALID'],
+            ]),
         );
 
         $response = $this->batchRequest->handle($request);
@@ -113,5 +97,28 @@ class BatchRequestTest extends TestCase
             $this->assertArrayHasKey('type', $singleResponse['body']['error']);
             $this->assertSame('MethodNotAllowedHttpException', $singleResponse['body']['error']['type']);
         }
+    }
+
+    public function testHandleValidRequest(): void
+    {
+        $request = new Request(
+            [],
+            [],
+            [],
+            [],
+            [],
+            ['REQUEST_METHOD' => 'POST'],
+            json_encode([
+                ['relative_url' => '/', 'method' => 'GET'],
+            ]),
+        );
+
+        $response = $this->batchRequest->handle($request);
+
+        $this->assertInstanceOf(JsonResponse::class, $response);
+        $this->assertSame(Response::HTTP_OK, $response->getStatusCode(), $response->getContent());
+
+        $responseData = json_decode($response->getContent(), true);
+        $this->assertIsArray($responseData);
     }
 }

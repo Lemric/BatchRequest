@@ -26,5 +26,4 @@ class ParseException extends BatchRequestException
     {
         return new self(sprintf('Malformed batch request: %s', $reason));
     }
-
 }

@@ -17,67 +17,38 @@ use PHPUnit\Framework\TestCase;
 
 final class BatchResponseExtendedTest extends TestCase
 {
-    public function testGetResponsesReturnsCorrectArray(): void
+    public function testEmptyBatchResponseIsSuccessful(): void
     {
-        $responses = [
-            ['code' => 200, 'body' => ['id' => 1]],
-            ['code' => 201, 'body' => ['id' => 2]],
-        ];
-
-        $batchResponse = new BatchResponse($responses);
-
-        $this->assertSame($responses, $batchResponse->getResponses());
-        $this->assertCount(2, $batchResponse->getResponses());
-    }
-
-    public function testIsSuccessfulWithAllSuccessCodes(): void
-    {
-        $responses = [
-            ['code' => 200, 'body' => []],
-            ['code' => 201, 'body' => []],
-            ['code' => 202, 'body' => []],
-            ['code' => 204, 'body' => []],
-        ];
-
-        $batchResponse = new BatchResponse($responses);
+        $batchResponse = BatchResponse::empty();
 
         $this->assertTrue($batchResponse->isSuccessful());
         $this->assertSame(0, $batchResponse->getFailureCount());
+        $this->assertSame([], $batchResponse->getResponses());
     }
 
-    public function testIsSuccessfulWith299StatusCode(): void
+    public function testFromArrayCreatesCorrectInstance(): void
+    {
+        $data = [
+            ['code' => 200, 'body' => ['id' => 1]],
+            ['code' => 404, 'body' => ['error' => 'Not found']],
+        ];
+
+        $batchResponse = BatchResponse::fromArray($data);
+
+        $this->assertSame($data, $batchResponse->toArray());
+        $this->assertCount(2, $batchResponse->getResponses());
+    }
+
+    public function testGetFailureCountHandlesMissingCode(): void
     {
         $responses = [
+            ['body' => []],
             ['code' => 200, 'body' => []],
-            ['code' => 299, 'body' => []],
         ];
 
         $batchResponse = new BatchResponse($responses);
 
-        $this->assertTrue($batchResponse->isSuccessful());
-    }
-
-    public function testIsSuccessfulReturnsFalseWith300StatusCode(): void
-    {
-        $responses = [
-            ['code' => 200, 'body' => []],
-            ['code' => 300, 'body' => []],
-        ];
-
-        $batchResponse = new BatchResponse($responses);
-
-        $this->assertFalse($batchResponse->isSuccessful());
-    }
-
-    public function testIsSuccessfulReturnsFalseWith199StatusCode(): void
-    {
-        $responses = [
-            ['code' => 199, 'body' => []],
-        ];
-
-        $batchResponse = new BatchResponse($responses);
-
-        $this->assertFalse($batchResponse->isSuccessful());
+        $this->assertSame(1, $batchResponse->getFailureCount());
     }
 
     public function testGetFailureCountWith4xxErrors(): void
@@ -123,76 +94,17 @@ final class BatchResponseExtendedTest extends TestCase
         $this->assertSame(2, $batchResponse->getFailureCount());
     }
 
-    public function testGetFailureCountHandlesMissingCode(): void
+    public function testGetResponsesReturnsCorrectArray(): void
     {
         $responses = [
-            ['body' => []],
-            ['code' => 200, 'body' => []],
-        ];
-
-        $batchResponse = new BatchResponse($responses);
-
-        $this->assertSame(1, $batchResponse->getFailureCount());
-    }
-
-    public function testWithResponsePreservesOriginal(): void
-    {
-        $original = new BatchResponse([
-            ['code' => 200, 'body' => []],
-        ]);
-
-        $modified = $original->withResponse(['code' => 201, 'body' => []]);
-
-        $this->assertCount(1, $original->getResponses());
-        $this->assertCount(2, $modified->getResponses());
-        $this->assertNotSame($original, $modified);
-    }
-
-    public function testWithResponseAddsToEnd(): void
-    {
-        $original = new BatchResponse([
             ['code' => 200, 'body' => ['id' => 1]],
             ['code' => 201, 'body' => ['id' => 2]],
-        ]);
-
-        $modified = $original->withResponse(['code' => 202, 'body' => ['id' => 3]]);
-
-        $responses = $modified->getResponses();
-        $this->assertSame(['code' => 202, 'body' => ['id' => 3]], $responses[2]);
-    }
-
-    public function testEmptyBatchResponseIsSuccessful(): void
-    {
-        $batchResponse = BatchResponse::empty();
-
-        $this->assertTrue($batchResponse->isSuccessful());
-        $this->assertSame(0, $batchResponse->getFailureCount());
-        $this->assertSame([], $batchResponse->getResponses());
-    }
-
-    public function testFromArrayCreatesCorrectInstance(): void
-    {
-        $data = [
-            ['code' => 200, 'body' => ['id' => 1]],
-            ['code' => 404, 'body' => ['error' => 'Not found']],
-        ];
-
-        $batchResponse = BatchResponse::fromArray($data);
-
-        $this->assertSame($data, $batchResponse->toArray());
-        $this->assertCount(2, $batchResponse->getResponses());
-    }
-
-    public function testToArrayAndGetResponsesReturnSameData(): void
-    {
-        $responses = [
-            ['code' => 200, 'body' => []],
-            ['code' => 201, 'body' => []],
         ];
 
         $batchResponse = new BatchResponse($responses);
 
-        $this->assertSame($batchResponse->getResponses(), $batchResponse->toArray());
+        $this->assertSame($responses, $batchResponse->getResponses());
+        $this->assertCount(2, $batchResponse->getResponses());
     }
 
     public function testGetResponseWithNegativeIndex(): void
@@ -204,11 +116,75 @@ final class BatchResponseExtendedTest extends TestCase
         $this->assertNull($batchResponse->getResponse(-1));
     }
 
+    public function testIsSuccessfulReturnsFalseWith199StatusCode(): void
+    {
+        $responses = [
+            ['code' => 199, 'body' => []],
+        ];
+
+        $batchResponse = new BatchResponse($responses);
+
+        $this->assertFalse($batchResponse->isSuccessful());
+    }
+
+    public function testIsSuccessfulReturnsFalseWith300StatusCode(): void
+    {
+        $responses = [
+            ['code' => 200, 'body' => []],
+            ['code' => 300, 'body' => []],
+        ];
+
+        $batchResponse = new BatchResponse($responses);
+
+        $this->assertFalse($batchResponse->isSuccessful());
+    }
+
+    public function testIsSuccessfulWith299StatusCode(): void
+    {
+        $responses = [
+            ['code' => 200, 'body' => []],
+            ['code' => 299, 'body' => []],
+        ];
+
+        $batchResponse = new BatchResponse($responses);
+
+        $this->assertTrue($batchResponse->isSuccessful());
+    }
+
+    public function testIsSuccessfulWithAllSuccessCodes(): void
+    {
+        $responses = [
+            ['code' => 200, 'body' => []],
+            ['code' => 201, 'body' => []],
+            ['code' => 202, 'body' => []],
+            ['code' => 204, 'body' => []],
+        ];
+
+        $batchResponse = new BatchResponse($responses);
+
+        $this->assertTrue($batchResponse->isSuccessful());
+        $this->assertSame(0, $batchResponse->getFailureCount());
+    }
+
     public function testIsSuccessfulWithEmptyResponses(): void
     {
         $batchResponse = new BatchResponse([]);
 
         $this->assertTrue($batchResponse->isSuccessful());
+    }
+
+    public function testMultipleWithResponseCalls(): void
+    {
+        $original = BatchResponse::empty();
+
+        $step1 = $original->withResponse(['code' => 200, 'body' => []]);
+        $step2 = $step1->withResponse(['code' => 201, 'body' => []]);
+        $step3 = $step2->withResponse(['code' => 202, 'body' => []]);
+
+        $this->assertCount(0, $original->getResponses());
+        $this->assertCount(1, $step1->getResponses());
+        $this->assertCount(2, $step2->getResponses());
+        $this->assertCount(3, $step3->getResponses());
     }
 
     public function testResponsesWithVariousHeaders(): void
@@ -235,17 +211,41 @@ final class BatchResponseExtendedTest extends TestCase
         $this->assertCount(1, $second['headers']);
     }
 
-    public function testMultipleWithResponseCalls(): void
+    public function testToArrayAndGetResponsesReturnSameData(): void
     {
-        $original = BatchResponse::empty();
+        $responses = [
+            ['code' => 200, 'body' => []],
+            ['code' => 201, 'body' => []],
+        ];
 
-        $step1 = $original->withResponse(['code' => 200, 'body' => []]);
-        $step2 = $step1->withResponse(['code' => 201, 'body' => []]);
-        $step3 = $step2->withResponse(['code' => 202, 'body' => []]);
+        $batchResponse = new BatchResponse($responses);
 
-        $this->assertCount(0, $original->getResponses());
-        $this->assertCount(1, $step1->getResponses());
-        $this->assertCount(2, $step2->getResponses());
-        $this->assertCount(3, $step3->getResponses());
+        $this->assertSame($batchResponse->getResponses(), $batchResponse->toArray());
+    }
+
+    public function testWithResponseAddsToEnd(): void
+    {
+        $original = new BatchResponse([
+            ['code' => 200, 'body' => ['id' => 1]],
+            ['code' => 201, 'body' => ['id' => 2]],
+        ]);
+
+        $modified = $original->withResponse(['code' => 202, 'body' => ['id' => 3]]);
+
+        $responses = $modified->getResponses();
+        $this->assertSame(['code' => 202, 'body' => ['id' => 3]], $responses[2]);
+    }
+
+    public function testWithResponsePreservesOriginal(): void
+    {
+        $original = new BatchResponse([
+            ['code' => 200, 'body' => []],
+        ]);
+
+        $modified = $original->withResponse(['code' => 201, 'body' => []]);
+
+        $this->assertCount(1, $original->getResponses());
+        $this->assertCount(2, $modified->getResponses());
+        $this->assertNotSame($original, $modified);
     }
 }

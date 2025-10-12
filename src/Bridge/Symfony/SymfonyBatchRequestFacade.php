@@ -12,13 +12,12 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Bridge\Symfony;
 
-use Lemric\BatchRequest\Exception\{RateLimitException, ValidationException};
+use Lemric\BatchRequest\Exception\{RateLimitException};
 use Lemric\BatchRequest\Handler\{BatchRequestHandler, ProcessBatchRequestCommand};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
 use Lemric\BatchRequest\Validator\{BatchRequestValidator, TransactionValidator};
 use Psr\Log\{LoggerInterface, NullLogger};
 use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
-use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Throwable;
@@ -151,7 +150,7 @@ final readonly class SymfonyBatchRequestFacade
         $content = $request->getContent();
         $decoded = json_decode($content, true);
         $isLargeBatch = is_array($decoded) && count($decoded) > 1000;
-        
+
         if ($isLargeBatch) {
             // Minimal context for large batch requests
             return [
@@ -163,7 +162,7 @@ final readonly class SymfonyBatchRequestFacade
                 'server' => ['IS_INTERNAL' => true],
             ];
         }
-        
+
         return [
             'include_headers' => $request->query->getBoolean('include_headers')
                 || $request->request->getBoolean('include_headers'),

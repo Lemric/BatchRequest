@@ -13,8 +13,7 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Model;
 
 use Countable;
-use Lemric\BatchRequest\BatchRequestInterface;
-use Lemric\BatchRequest\TransactionInterface;
+use Lemric\BatchRequest\{BatchRequestInterface, TransactionInterface};
 
 use function count;
 
@@ -27,7 +26,7 @@ final readonly class BatchRequest implements BatchRequestInterface, Countable
 {
     /**
      * @param array<int, TransactionInterface> $transactions
-     * @param array<string, mixed> $metadata
+     * @param array<string, mixed>             $metadata
      */
     public function __construct(
         private array $transactions,
@@ -37,19 +36,9 @@ final readonly class BatchRequest implements BatchRequestInterface, Countable
     ) {
     }
 
-    public function getTransactions(): array
-    {
-        return $this->transactions;
-    }
-
     public function count(): int
     {
         return count($this->transactions);
-    }
-
-    public function shouldIncludeHeaders(): bool
-    {
-        return $this->includeHeaders;
     }
 
     public function getClientIdentifier(): string
@@ -62,48 +51,9 @@ final readonly class BatchRequest implements BatchRequestInterface, Countable
         return $this->metadata;
     }
 
-    /**
-     * Creates a new BatchRequest with modified includeHeaders flag.
-     */
-    public function withIncludeHeaders(bool $includeHeaders): self
+    public function getTransactions(): array
     {
-        return new self(
-            $this->transactions,
-            $includeHeaders,
-            $this->clientIdentifier,
-            $this->metadata
-        );
-    }
-
-    /**
-     * Creates a new BatchRequest with a specific transaction replaced.
-     */
-    public function withTransaction(int $index, TransactionInterface $transaction): self
-    {
-        $transactions = $this->transactions;
-        $transactions[$index] = $transaction;
-
-        return new self(
-            $transactions,
-            $this->includeHeaders,
-            $this->clientIdentifier,
-            $this->metadata
-        );
-    }
-
-    /**
-     * Creates a new BatchRequest with additional metadata.
-     *
-     * @param array<string, mixed> $metadata
-     */
-    public function withMetadata(array $metadata): self
-    {
-        return new self(
-            $this->transactions,
-            $this->includeHeaders,
-            $this->clientIdentifier,
-            array_merge($this->metadata, $metadata)
-        );
+        return $this->transactions;
     }
 
     /**
@@ -131,5 +81,54 @@ final readonly class BatchRequest implements BatchRequestInterface, Countable
         }
 
         return $result;
+    }
+
+    public function shouldIncludeHeaders(): bool
+    {
+        return $this->includeHeaders;
+    }
+
+    /**
+     * Creates a new BatchRequest with modified includeHeaders flag.
+     */
+    public function withIncludeHeaders(bool $includeHeaders): self
+    {
+        return new self(
+            $this->transactions,
+            $includeHeaders,
+            $this->clientIdentifier,
+            $this->metadata,
+        );
+    }
+
+    /**
+     * Creates a new BatchRequest with additional metadata.
+     *
+     * @param array<string, mixed> $metadata
+     */
+    public function withMetadata(array $metadata): self
+    {
+        return new self(
+            $this->transactions,
+            $this->includeHeaders,
+            $this->clientIdentifier,
+            array_merge($this->metadata, $metadata),
+        );
+    }
+
+    /**
+     * Creates a new BatchRequest with a specific transaction replaced.
+     */
+    public function withTransaction(int $index, TransactionInterface $transaction): self
+    {
+        $transactions = $this->transactions;
+        $transactions[$index] = $transaction;
+
+        return new self(
+            $transactions,
+            $this->includeHeaders,
+            $this->clientIdentifier,
+            $this->metadata,
+        );
     }
 }

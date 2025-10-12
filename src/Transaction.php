@@ -66,22 +66,22 @@ final readonly class Transaction implements TransactionInterface
                 $headers[(string) $key] = (string) $value;
             }
         }
-        
+
         $parameters = [];
         foreach ((array) ($data['parameters'] ?? []) as $key => $value) {
             $parameters[(string) $key] = $value;
         }
-        
+
         $cookies = [];
         foreach ((array) ($data['cookies'] ?? []) as $key => $value) {
             $cookies[(string) $key] = (string) $value;
         }
-        
+
         $files = [];
         foreach ((array) ($data['files'] ?? []) as $key => $value) {
             $files[(string) $key] = $value;
         }
-        
+
         $serverVariables = [];
         foreach ((array) ($data['server'] ?? []) as $key => $value) {
             $serverVariables[(string) $key] = $value;

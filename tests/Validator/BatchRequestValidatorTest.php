@@ -20,6 +20,20 @@ use PHPUnit\Framework\TestCase;
 
 final class BatchRequestValidatorTest extends TestCase
 {
+    public function testValidateAcceptsBatchAtLimit(): void
+    {
+        $validator = new BatchRequestValidator(new TransactionValidator(), 3);
+
+        $batchRequest = new BatchRequest([
+            new Transaction('GET', '/api/posts/1'),
+            new Transaction('GET', '/api/posts/2'),
+            new Transaction('GET', '/api/posts/3'),
+        ]);
+
+        $validator->validate($batchRequest);
+        $this->assertTrue(true);
+    }
+
     public function testValidateAcceptsValidBatch(): void
     {
         $validator = new BatchRequestValidator(new TransactionValidator(), 10);
@@ -33,13 +47,19 @@ final class BatchRequestValidatorTest extends TestCase
         $this->assertTrue(true);
     }
 
-    public function testValidateRejectsEmptyBatch(): void
+    public function testValidateChecksEveryTransaction(): void
     {
-        $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('exceeds limit');
-
         $validator = new BatchRequestValidator(new TransactionValidator());
-        $validator->validate(new BatchRequest([]));
+
+        $batchRequest = new BatchRequest([
+            new Transaction('GET', '/api/posts'),
+            new Transaction('POST', '/api/users'),
+            new Transaction('PUT', '/api/data/1'),
+            new Transaction('DELETE', '/api/items/2'),
+        ]);
+
+        $validator->validate($batchRequest);
+        $this->assertTrue(true);
     }
 
     public function testValidateRejectsBatchExceedingLimit(): void
@@ -57,47 +77,13 @@ final class BatchRequestValidatorTest extends TestCase
         $validator->validate($batchRequest);
     }
 
-    public function testValidateRejectsInvalidTransaction(): void
+    public function testValidateRejectsEmptyBatch(): void
     {
         $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('exceeds limit');
 
         $validator = new BatchRequestValidator(new TransactionValidator());
-
-        $batchRequest = new BatchRequest([
-            new Transaction('GET', '/api/posts'),
-            new Transaction('INVALID', '/api/users'),
-        ]);
-
-        $validator->validate($batchRequest);
-    }
-
-    public function testValidateAcceptsBatchAtLimit(): void
-    {
-        $validator = new BatchRequestValidator(new TransactionValidator(), 3);
-
-        $batchRequest = new BatchRequest([
-            new Transaction('GET', '/api/posts/1'),
-            new Transaction('GET', '/api/posts/2'),
-            new Transaction('GET', '/api/posts/3'),
-        ]);
-
-        $validator->validate($batchRequest);
-        $this->assertTrue(true);
-    }
-
-    public function testValidateWithDefaultMaxBatchSize(): void
-    {
-        $validator = new BatchRequestValidator(new TransactionValidator());
-
-        $transactions = [];
-        for ($i = 0; $i < 50; ++$i) {
-            $transactions[] = new Transaction('GET', "/api/posts/{$i}");
-        }
-
-        $batchRequest = new BatchRequest($transactions);
-
-        $validator->validate($batchRequest);
-        $this->assertTrue(true);
+        $validator->validate(new BatchRequest([]));
     }
 
     public function testValidateRejectsExceedingDefaultLimit(): void
@@ -112,6 +98,20 @@ final class BatchRequestValidatorTest extends TestCase
         }
 
         $batchRequest = new BatchRequest($transactions);
+        $validator->validate($batchRequest);
+    }
+
+    public function testValidateRejectsInvalidTransaction(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        $validator = new BatchRequestValidator(new TransactionValidator());
+
+        $batchRequest = new BatchRequest([
+            new Transaction('GET', '/api/posts'),
+            new Transaction('INVALID', '/api/users'),
+        ]);
+
         $validator->validate($batchRequest);
     }
 
@@ -146,16 +146,16 @@ final class BatchRequestValidatorTest extends TestCase
         $this->assertTrue(true);
     }
 
-    public function testValidateChecksEveryTransaction(): void
+    public function testValidateWithDefaultMaxBatchSize(): void
     {
         $validator = new BatchRequestValidator(new TransactionValidator());
 
-        $batchRequest = new BatchRequest([
-            new Transaction('GET', '/api/posts'),
-            new Transaction('POST', '/api/users'),
-            new Transaction('PUT', '/api/data/1'),
-            new Transaction('DELETE', '/api/items/2'),
-        ]);
+        $transactions = [];
+        for ($i = 0; $i < 50; ++$i) {
+            $transactions[] = new Transaction('GET', "/api/posts/{$i}");
+        }
+
+        $batchRequest = new BatchRequest($transactions);
 
         $validator->validate($batchRequest);
         $this->assertTrue(true);

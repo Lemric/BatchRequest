@@ -1,12 +1,23 @@
 <?php
 
+/**
+ * This file is part of the Lemric package.
+ * (c) Lemric
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ *
+ * @author Dominik Labudzinski <dominik@labudzinski.com>
+ */
+declare(strict_types=1);
+
 namespace Lemric\BatchRequest\Tests;
 
 use Lemric\BatchRequest\BatchRequest;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\HttpKernelInterface;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\HttpFoundation\{Request, Response};
+use Symfony\Component\HttpKernel\HttpKernelInterface;
+
+use const PHP_EOL;
 
 class BatchRequestPerformanceTest extends TestCase
 {
@@ -16,7 +27,7 @@ class BatchRequestPerformanceTest extends TestCase
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
         $httpKernel->method('handle')->willReturn(new Response('[]', 200));
-        
+
         $this->batchRequest = new BatchRequest($httpKernel);
     }
 
@@ -38,8 +49,8 @@ class BatchRequestPerformanceTest extends TestCase
         $endTime = microtime(true);
         $executionTime = $endTime - $startTime;
 
-        echo PHP_EOL . 'Batch requests ' . count($requestData) . PHP_EOL;
-        echo 'Execution time: ' . $executionTime . 's' . PHP_EOL;
+        echo PHP_EOL.'Batch requests '.count($requestData).PHP_EOL;
+        echo 'Execution time: '.$executionTime.'s'.PHP_EOL;
 
         $this->assertLessThan(1, $executionTime, 'Batch request processing took too long');
     }

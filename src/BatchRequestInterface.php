@@ -44,12 +44,12 @@ interface BatchRequestInterface
     public function getTransactions(): array;
 
     /**
-     * Checks if headers should be included in responses.
-     */
-    public function shouldIncludeHeaders(): bool;
-
-    /**
      * Checks if the batch is empty.
      */
     public function isEmpty(): bool;
+
+    /**
+     * Checks if headers should be included in responses.
+     */
+    public function shouldIncludeHeaders(): bool;
 }

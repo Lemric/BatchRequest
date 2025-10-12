@@ -34,7 +34,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
     {
         $batchRequest = $command->getBatchRequest();
         $logger = $this->logger ?? new NullLogger();
-        
+
         // Disable logging for large batch requests to improve performance
         $isLargeBatch = $batchRequest->count() > 1000;
         $effectiveLogger = $isLargeBatch ? new NullLogger() : $logger;
@@ -59,7 +59,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
                     'body' => [
                         'error' => [
                             'type' => 'MethodNotAllowedHttpException',
-                            'message' => 'Method Not Allowed: ' . $e->getMessage(),
+                            'message' => 'Method Not Allowed: '.$e->getMessage(),
                         ],
                     ],
                 ];

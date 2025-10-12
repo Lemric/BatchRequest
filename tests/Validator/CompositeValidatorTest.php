@@ -12,10 +12,9 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Tests\Validator;
 
-use Lemric\BatchRequest\BatchRequestInterface;
+use Lemric\BatchRequest\{BatchRequestInterface, Transaction};
 use Lemric\BatchRequest\Exception\ValidationException;
 use Lemric\BatchRequest\Model\BatchRequest;
-use Lemric\BatchRequest\Transaction;
 use Lemric\BatchRequest\Validator\{CompositeValidator, ValidatorInterface};
 use PHPUnit\Framework\TestCase;
 

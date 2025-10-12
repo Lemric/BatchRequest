@@ -12,10 +12,9 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Parser;
 
-use Lemric\BatchRequest\BatchRequestInterface;
+use Lemric\BatchRequest\{BatchRequestInterface, Transaction};
 use Lemric\BatchRequest\Exception\ParseException;
 use Lemric\BatchRequest\Model\BatchRequest;
-use Lemric\BatchRequest\Transaction;
 
 use function array_map;
 use function explode;
@@ -56,7 +55,7 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         $transactions = [];
         foreach ($data as $item) {
             if (is_array($item)) {
-                /** @var array<string, mixed> $item */
+                /* @var array<string, mixed> $item */
                 $transactions[] = $this->parseTransaction($item, $context);
             }
         }
@@ -75,31 +74,34 @@ final readonly class JsonBatchRequestParser implements ParserInterface
     }
 
     /**
-     * Parses a single transaction from raw data.
+     * Extracts files based on attached_files directive.
      *
      * @param array<string, mixed> $data
      * @param array<string, mixed> $context
+     *
+     * @return array<string, mixed>
      */
-    private function parseTransaction(array $data, array $context): Transaction
+    private function extractFiles(array $data, array $context): array
     {
-        $parameters = $this->extractParameters($data);
-        $content = $this->prepareContent($data, $parameters);
-
-        $cookies = [];
-        foreach ((array) ($context['cookies'] ?? []) as $key => $value) {
-            $cookies[(string) $key] = (string) $value;
+        if (!isset($data['attached_files'])) {
+            return [];
         }
 
-        return new Transaction(
-            method: (string) ($data['method'] ?? 'GET'),
-            uri: $this->extractUri($data),
-            headers: $this->mergeHeaders($data, $context),
-            parameters: $parameters,
-            content: $content,
-            cookies: $cookies,
-            files: $this->extractFiles($data, $context),
-            serverVariables: $this->extractServerVariables($context),
+        $attachedFileNames = array_map(
+            'trim',
+            explode(',', (string) $data['attached_files']),
         );
+
+        $allFiles = (array) ($context['files'] ?? []);
+
+        $result = [];
+        foreach ($allFiles as $key => $value) {
+            if (in_array((string) $key, $attachedFileNames, true)) {
+                $result[(string) $key] = $value;
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -131,6 +133,7 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         foreach ($parameters as $key => $value) {
             $result[(string) $key] = $value;
         }
+
         return $result;
     }
 
@@ -155,7 +158,23 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         foreach ($parameters as $key => $value) {
             $result[(string) $key] = $value;
         }
+
         return $result;
+    }
+
+    /**
+     * Extracts server variables from context.
+     *
+     * @param array<string, mixed> $context
+     *
+     * @return array<string, mixed>
+     */
+    private function extractServerVariables(array $context): array
+    {
+        $server = (array) ($context['server'] ?? []);
+        $server['IS_INTERNAL'] = true;
+
+        return $server;
     }
 
     /**
@@ -202,7 +221,36 @@ final readonly class JsonBatchRequestParser implements ParserInterface
                 $result[(string) $key] = (string) $value;
             }
         }
+
         return $result;
+    }
+
+    /**
+     * Parses a single transaction from raw data.
+     *
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $context
+     */
+    private function parseTransaction(array $data, array $context): Transaction
+    {
+        $parameters = $this->extractParameters($data);
+        $content = $this->prepareContent($data, $parameters);
+
+        $cookies = [];
+        foreach ((array) ($context['cookies'] ?? []) as $key => $value) {
+            $cookies[(string) $key] = (string) $value;
+        }
+
+        return new Transaction(
+            method: (string) ($data['method'] ?? 'GET'),
+            uri: $this->extractUri($data),
+            headers: $this->mergeHeaders($data, $context),
+            parameters: $parameters,
+            content: $content,
+            cookies: $cookies,
+            files: $this->extractFiles($data, $context),
+            serverVariables: $this->extractServerVariables($context),
+        );
     }
 
     /**
@@ -219,54 +267,10 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         if ([] !== $parameters) {
             $encoded = json_encode($parameters);
-            return $encoded !== false ? $encoded : '';
+
+            return false !== $encoded ? $encoded : '';
         }
 
         return '';
-    }
-
-    /**
-     * Extracts files based on attached_files directive.
-     *
-     * @param array<string, mixed> $data
-     * @param array<string, mixed> $context
-     *
-     * @return array<string, mixed>
-     */
-    private function extractFiles(array $data, array $context): array
-    {
-        if (!isset($data['attached_files'])) {
-            return [];
-        }
-
-        $attachedFileNames = array_map(
-            'trim',
-            explode(',', (string) $data['attached_files'])
-        );
-
-        $allFiles = (array) ($context['files'] ?? []);
-
-        $result = [];
-        foreach ($allFiles as $key => $value) {
-            if (in_array((string) $key, $attachedFileNames, true)) {
-                $result[(string) $key] = $value;
-            }
-        }
-        return $result;
-    }
-
-    /**
-     * Extracts server variables from context.
-     *
-     * @param array<string, mixed> $context
-     *
-     * @return array<string, mixed>
-     */
-    private function extractServerVariables(array $context): array
-    {
-        $server = (array) ($context['server'] ?? []);
-        $server['IS_INTERNAL'] = true;
-
-        return $server;
     }
 }

@@ -105,6 +105,7 @@ final readonly class SymfonyTransactionExecutor implements TransactionExecutorIn
                 $headers[$name] = (string) $values;
             }
         }
+
         return $headers;
     }
 
@@ -119,7 +120,7 @@ final readonly class SymfonyTransactionExecutor implements TransactionExecutorIn
         $body = false === $content ? [] : $content;
 
         $contentType = $response->headers->get('Content-Type', '');
-        if ($contentType !== null && str_contains($contentType, 'application/json')) {
+        if (null !== $contentType && str_contains($contentType, 'application/json')) {
             try {
                 $bodyString = is_string($body) ? $body : '';
                 $decoded = json_decode($bodyString, true, 512, JSON_THROW_ON_ERROR);

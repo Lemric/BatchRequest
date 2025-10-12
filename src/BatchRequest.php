@@ -13,10 +13,11 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest;
 
 use Lemric\BatchRequest\Bridge\Symfony\SymfonyBatchRequestFacade;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\{Request, Response};
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
+
+use const E_USER_DEPRECATED;
 
 /**
  * Backward compatibility wrapper for v2.x API.
@@ -33,17 +34,17 @@ final readonly class BatchRequest
     ) {
         @trigger_error(
             sprintf(
-                'The "%s" class is deprecated since version 2.0 and will be removed in 3.1. ' .
+                'The "%s" class is deprecated since version 2.0 and will be removed in 3.1. '.
                 'Use "%s" instead.',
                 self::class,
-                SymfonyBatchRequestFacade::class
+                SymfonyBatchRequestFacade::class,
             ),
-            E_USER_DEPRECATED
+            E_USER_DEPRECATED,
         );
 
         $this->facade = new SymfonyBatchRequestFacade(
             $httpKernel,
-            $rateLimiterFactory
+            $rateLimiterFactory,
         );
     }
 

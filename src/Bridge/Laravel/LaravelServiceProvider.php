@@ -20,26 +20,25 @@ use Illuminate\Support\ServiceProvider;
 class LaravelServiceProvider extends ServiceProvider
 {
     /**
-     * Register services.
-     */
-    public function register(): void
-    {
-        $this->app->singleton(LaravelBatchRequestFacade::class, function ($app) {
-            /** @var \Illuminate\Contracts\Container\Container $app */
-            return new LaravelBatchRequestFacade(
-                $app->make('Illuminate\Contracts\Http\Kernel'),
-                $app->make('log'),
-                50 // Default max batch size
-            );
-        });
-    }
-
-    /**
      * Bootstrap services.
      */
     public function boot(): void
     {
         // Configuration publishing would go here if needed
     }
-}
 
+    /**
+     * Register services.
+     */
+    public function register(): void
+    {
+        $this->app->singleton(LaravelBatchRequestFacade::class, function ($app) {
+            /* @var \Illuminate\Contracts\Container\Container $app */
+            return new LaravelBatchRequestFacade(
+                $app->make('Illuminate\Contracts\Http\Kernel'),
+                $app->make('log'),
+                50, // Default max batch size
+            );
+        });
+    }
+}

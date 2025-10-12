@@ -12,7 +12,6 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Tests\Parser;
 
-use Lemric\BatchRequest\Exception\ParseException;
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
 use PHPUnit\Framework\TestCase;
 
@@ -23,6 +22,100 @@ final class JsonBatchRequestParserExtendedTest extends TestCase
     protected function setUp(): void
     {
         $this->parser = new JsonBatchRequestParser();
+    }
+
+    public function testParseAddsInternalServerVariable(): void
+    {
+        $content = json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts'],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $serverVars = $batchRequest->getTransactions()[0]->getServerVariables();
+
+        $this->assertArrayHasKey('IS_INTERNAL', $serverVars);
+        $this->assertTrue($serverVars['IS_INTERNAL']);
+    }
+
+    public function testParseBodyOverridesQueryParameters(): void
+    {
+        $content = json_encode([
+            [
+                'method' => 'POST',
+                'relative_url' => '/api/posts?id=1',
+                'body' => ['id' => '2', 'title' => 'Test'],
+            ],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $params = $batchRequest->getTransactions()[0]->getParameters();
+
+        $this->assertSame('2', $params['id']);
+        $this->assertSame('Test', $params['title']);
+    }
+
+    public function testParseDoesNotSupportOtherContentTypes(): void
+    {
+        $this->assertFalse($this->parser->supports('application/xml'));
+        $this->assertFalse($this->parser->supports('text/html'));
+        $this->assertFalse($this->parser->supports('application/x-www-form-urlencoded'));
+    }
+
+    public function testParseMergesServerVariables(): void
+    {
+        $content = json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts'],
+        ]);
+
+        $context = [
+            'server' => ['REMOTE_ADDR' => '192.168.1.1', 'REQUEST_METHOD' => 'POST'],
+        ];
+
+        $batchRequest = $this->parser->parse($content, $context);
+        $serverVars = $batchRequest->getTransactions()[0]->getServerVariables();
+
+        $this->assertSame('192.168.1.1', $serverVars['REMOTE_ADDR']);
+        $this->assertSame('POST', $serverVars['REQUEST_METHOD']);
+        $this->assertTrue($serverVars['IS_INTERNAL']);
+    }
+
+    public function testParseSupportsJsonContentType(): void
+    {
+        $this->assertTrue($this->parser->supports('application/json'));
+    }
+
+    public function testParseSupportsTextJsonContentType(): void
+    {
+        $this->assertTrue($this->parser->supports('text/json'));
+    }
+
+    public function testParseWithComplexQueryString(): void
+    {
+        $content = json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts?filter[name]=test&sort=-created&page=1'],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $transaction = $batchRequest->getTransactions()[0];
+
+        $this->assertSame('/api/posts', $transaction->getUri());
+        $this->assertArrayHasKey('page', $transaction->getParameters());
+    }
+
+    public function testParseWithContextCookies(): void
+    {
+        $content = json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts'],
+        ]);
+
+        $context = [
+            'cookies' => ['session' => 'abc123', 'user' => 'john'],
+        ];
+
+        $batchRequest = $this->parser->parse($content, $context);
+        $cookies = $batchRequest->getTransactions()[0]->getCookies();
+
+        $this->assertSame(['session' => 'abc123', 'user' => 'john'], $cookies);
     }
 
     public function testParseWithEmptyBody(): void
@@ -54,32 +147,6 @@ final class JsonBatchRequestParserExtendedTest extends TestCase
         $this->assertSame([], $transactions[2]->getParameters());
     }
 
-    public function testParseWithComplexQueryString(): void
-    {
-        $content = json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/posts?filter[name]=test&sort=-created&page=1'],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $transaction = $batchRequest->getTransactions()[0];
-
-        $this->assertSame('/api/posts', $transaction->getUri());
-        $this->assertArrayHasKey('page', $transaction->getParameters());
-    }
-
-    public function testParseWithoutQueryString(): void
-    {
-        $content = json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/posts'],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $transaction = $batchRequest->getTransactions()[0];
-
-        $this->assertSame('/api/posts', $transaction->getUri());
-        $this->assertSame([], $transaction->getParameters());
-    }
-
     public function testParseWithMultipleFiles(): void
     {
         $content = json_encode([
@@ -109,6 +176,65 @@ final class JsonBatchRequestParserExtendedTest extends TestCase
         $this->assertArrayNotHasKey('file4', $files);
     }
 
+    public function testParseWithNestedArrayBody(): void
+    {
+        $content = json_encode([
+            [
+                'method' => 'POST',
+                'relative_url' => '/api/posts',
+                'body' => [
+                    'title' => 'Test',
+                    'meta' => ['tags' => ['php', 'symfony']],
+                ],
+            ],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $params = $batchRequest->getTransactions()[0]->getParameters();
+
+        $this->assertSame('Test', $params['title']);
+        $this->assertIsArray($params['meta']);
+        $this->assertSame(['php', 'symfony'], $params['meta']['tags']);
+    }
+
+    public function testParseWithOnlyQueryParameters(): void
+    {
+        $content = json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/search?q=test&type=all'],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $transaction = $batchRequest->getTransactions()[0];
+
+        $this->assertSame('/api/search', $transaction->getUri());
+        $this->assertSame(['q' => 'test', 'type' => 'all'], $transaction->getParameters());
+    }
+
+    public function testParseWithoutFiles(): void
+    {
+        $content = json_encode([
+            ['method' => 'POST', 'relative_url' => '/api/posts'],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $files = $batchRequest->getTransactions()[0]->getFiles();
+
+        $this->assertSame([], $files);
+    }
+
+    public function testParseWithoutQueryString(): void
+    {
+        $content = json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts'],
+        ]);
+
+        $batchRequest = $this->parser->parse($content);
+        $transaction = $batchRequest->getTransactions()[0];
+
+        $this->assertSame('/api/posts', $transaction->getUri());
+        $this->assertSame([], $transaction->getParameters());
+    }
+
     public function testParseWithWhitespaceInAttachedFiles(): void
     {
         $content = json_encode([
@@ -131,132 +257,5 @@ final class JsonBatchRequestParserExtendedTest extends TestCase
         $files = $batchRequest->getTransactions()[0]->getFiles();
 
         $this->assertCount(3, $files);
-    }
-
-    public function testParseWithoutFiles(): void
-    {
-        $content = json_encode([
-            ['method' => 'POST', 'relative_url' => '/api/posts'],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $files = $batchRequest->getTransactions()[0]->getFiles();
-
-        $this->assertSame([], $files);
-    }
-
-    public function testParseWithContextCookies(): void
-    {
-        $content = json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/posts'],
-        ]);
-
-        $context = [
-            'cookies' => ['session' => 'abc123', 'user' => 'john'],
-        ];
-
-        $batchRequest = $this->parser->parse($content, $context);
-        $cookies = $batchRequest->getTransactions()[0]->getCookies();
-
-        $this->assertSame(['session' => 'abc123', 'user' => 'john'], $cookies);
-    }
-
-    public function testParseAddsInternalServerVariable(): void
-    {
-        $content = json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/posts'],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $serverVars = $batchRequest->getTransactions()[0]->getServerVariables();
-
-        $this->assertArrayHasKey('IS_INTERNAL', $serverVars);
-        $this->assertTrue($serverVars['IS_INTERNAL']);
-    }
-
-    public function testParseMergesServerVariables(): void
-    {
-        $content = json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/posts'],
-        ]);
-
-        $context = [
-            'server' => ['REMOTE_ADDR' => '192.168.1.1', 'REQUEST_METHOD' => 'POST'],
-        ];
-
-        $batchRequest = $this->parser->parse($content, $context);
-        $serverVars = $batchRequest->getTransactions()[0]->getServerVariables();
-
-        $this->assertSame('192.168.1.1', $serverVars['REMOTE_ADDR']);
-        $this->assertSame('POST', $serverVars['REQUEST_METHOD']);
-        $this->assertTrue($serverVars['IS_INTERNAL']);
-    }
-
-    public function testParseWithOnlyQueryParameters(): void
-    {
-        $content = json_encode([
-            ['method' => 'GET', 'relative_url' => '/api/search?q=test&type=all'],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $transaction = $batchRequest->getTransactions()[0];
-
-        $this->assertSame('/api/search', $transaction->getUri());
-        $this->assertSame(['q' => 'test', 'type' => 'all'], $transaction->getParameters());
-    }
-
-    public function testParseBodyOverridesQueryParameters(): void
-    {
-        $content = json_encode([
-            [
-                'method' => 'POST',
-                'relative_url' => '/api/posts?id=1',
-                'body' => ['id' => '2', 'title' => 'Test'],
-            ],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $params = $batchRequest->getTransactions()[0]->getParameters();
-
-        $this->assertSame('2', $params['id']);
-        $this->assertSame('Test', $params['title']);
-    }
-
-    public function testParseSupportsJsonContentType(): void
-    {
-        $this->assertTrue($this->parser->supports('application/json'));
-    }
-
-    public function testParseSupportsTextJsonContentType(): void
-    {
-        $this->assertTrue($this->parser->supports('text/json'));
-    }
-
-    public function testParseDoesNotSupportOtherContentTypes(): void
-    {
-        $this->assertFalse($this->parser->supports('application/xml'));
-        $this->assertFalse($this->parser->supports('text/html'));
-        $this->assertFalse($this->parser->supports('application/x-www-form-urlencoded'));
-    }
-
-    public function testParseWithNestedArrayBody(): void
-    {
-        $content = json_encode([
-            [
-                'method' => 'POST',
-                'relative_url' => '/api/posts',
-                'body' => [
-                    'title' => 'Test',
-                    'meta' => ['tags' => ['php', 'symfony']],
-                ],
-            ],
-        ]);
-
-        $batchRequest = $this->parser->parse($content);
-        $params = $batchRequest->getTransactions()[0]->getParameters();
-
-        $this->assertSame('Test', $params['title']);
-        $this->assertIsArray($params['meta']);
-        $this->assertSame(['php', 'symfony'], $params['meta']['tags']);
     }
 }

@@ -13,11 +13,12 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Bridge\Laravel;
 
 use Illuminate\Contracts\Http\Kernel;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
+use Illuminate\Http\{Request, Response};
 use Lemric\BatchRequest\Handler\TransactionExecutorInterface;
 use Lemric\BatchRequest\TransactionInterface;
 use Throwable;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Executes transactions using Laravel's application kernel.
@@ -90,6 +91,7 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
                 $headers[$name] = (string) $values;
             }
         }
+
         return $headers;
     }
 
@@ -104,7 +106,7 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
         $body = false === $content ? [] : $content;
 
         $contentType = $response->headers->get('Content-Type', '');
-        if ($contentType !== null && str_contains($contentType, 'application/json')) {
+        if (null !== $contentType && str_contains($contentType, 'application/json')) {
             try {
                 $bodyString = is_string($body) ? $body : '';
                 $decoded = json_decode($bodyString, true, 512, JSON_THROW_ON_ERROR);
@@ -121,4 +123,3 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
         ];
     }
 }
-

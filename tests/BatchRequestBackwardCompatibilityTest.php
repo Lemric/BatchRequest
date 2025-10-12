@@ -14,9 +14,10 @@ namespace Lemric\BatchRequest\Tests;
 
 use Lemric\BatchRequest\BatchRequest;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\{Request, Response};
 use Symfony\Component\HttpKernel\HttpKernelInterface;
+
+use const E_USER_DEPRECATED;
 
 final class BatchRequestBackwardCompatibilityTest extends TestCase
 {
@@ -33,6 +34,30 @@ final class BatchRequestBackwardCompatibilityTest extends TestCase
         restore_error_handler();
 
         $this->assertInstanceOf(BatchRequest::class, $batchRequest);
+    }
+
+    public function testDeprecationNoticeTriggered(): void
+    {
+        $errorTriggered = false;
+        $errorMessage = '';
+
+        set_error_handler(static function (int $errno, string $errstr) use (&$errorTriggered, &$errorMessage): bool {
+            if (E_USER_DEPRECATED === $errno) {
+                $errorTriggered = true;
+                $errorMessage = $errstr;
+            }
+
+            return true;
+        });
+
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        new BatchRequest($httpKernel);
+
+        restore_error_handler();
+
+        $this->assertTrue($errorTriggered, 'Deprecation notice was not triggered');
+        $this->assertStringContainsString('deprecated since version 2.0', $errorMessage);
+        $this->assertStringContainsString('will be removed in 3.1', $errorMessage);
     }
 
     public function testHandleMethod(): void
@@ -57,35 +82,11 @@ final class BatchRequestBackwardCompatibilityTest extends TestCase
             [],
             [],
             ['REQUEST_METHOD' => 'POST'],
-            json_encode([['method' => 'GET', 'relative_url' => '/']])
+            json_encode([['method' => 'GET', 'relative_url' => '/']]),
         );
 
         $response = $batchRequest->handle($request);
 
         $this->assertInstanceOf(Response::class, $response);
-    }
-
-    public function testDeprecationNoticeTriggered(): void
-    {
-        $errorTriggered = false;
-        $errorMessage = '';
-
-        set_error_handler(static function (int $errno, string $errstr) use (&$errorTriggered, &$errorMessage): bool {
-            if (E_USER_DEPRECATED === $errno) {
-                $errorTriggered = true;
-                $errorMessage = $errstr;
-            }
-
-            return true;
-        });
-
-        $httpKernel = $this->createMock(HttpKernelInterface::class);
-        new BatchRequest($httpKernel);
-
-        restore_error_handler();
-
-        $this->assertTrue($errorTriggered, 'Deprecation notice was not triggered');
-        $this->assertStringContainsString('deprecated since version 2.0', $errorMessage);
-        $this->assertStringContainsString('will be removed in 3.0', $errorMessage);
     }
 }

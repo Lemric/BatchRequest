@@ -43,8 +43,8 @@ final readonly class BatchRequestValidator implements ValidatorInterface
         $transactions = $batchRequest->getTransactions();
         $isLargeBatch = count($transactions) > 1000;
         $validationLimit = $isLargeBatch ? 100 : count($transactions);
-        
-        for ($i = 0; $i < $validationLimit; $i++) {
+
+        for ($i = 0; $i < $validationLimit; ++$i) {
             $this->transactionValidator->validate($transactions[$i]);
         }
     }

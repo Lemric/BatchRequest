@@ -32,6 +32,63 @@ final class ExceptionTest extends TestCase
         $this->assertSame('Test message', $exception->getMessage());
     }
 
+    public function testExceptionsInheritance(): void
+    {
+        $this->assertInstanceOf(BatchRequestException::class, new ValidationException('test'));
+        $this->assertInstanceOf(BatchRequestException::class, new ParseException('test'));
+        $this->assertInstanceOf(BatchRequestException::class, new ExecutionException('test'));
+        $this->assertInstanceOf(BatchRequestException::class, new RateLimitException('test'));
+    }
+
+    public function testExecutionExceptionTransactionFailed(): void
+    {
+        $exception = ExecutionException::transactionFailed(5, 'Database connection lost');
+
+        $this->assertInstanceOf(ExecutionException::class, $exception);
+        $this->assertStringContainsString('Transaction 5 failed', $exception->getMessage());
+        $this->assertStringContainsString('Database connection lost', $exception->getMessage());
+    }
+
+    public function testParseExceptionInvalidJson(): void
+    {
+        $exception = ParseException::invalidJson('Syntax error');
+
+        $this->assertInstanceOf(ParseException::class, $exception);
+        $this->assertStringContainsString('Invalid JSON: Syntax error', $exception->getMessage());
+    }
+
+    public function testParseExceptionMalformedRequest(): void
+    {
+        $exception = ParseException::malformedRequest('Missing required field');
+
+        $this->assertStringContainsString('Malformed batch request: Missing required field', $exception->getMessage());
+    }
+
+    public function testRateLimitExceptionDefault(): void
+    {
+        $exception = new RateLimitException();
+
+        $this->assertInstanceOf(RateLimitException::class, $exception);
+        $this->assertSame('Rate limit exceeded', $exception->getMessage());
+        $this->assertNull($exception->getRetryAfter());
+    }
+
+    public function testRateLimitExceptionGetRetryAfter(): void
+    {
+        $exception = new RateLimitException('Test', 12345);
+
+        $this->assertSame(12345, $exception->getRetryAfter());
+    }
+
+    public function testRateLimitExceptionWithRetryAfter(): void
+    {
+        $retryAfter = time() + 3600;
+        $exception = new RateLimitException('Too many requests', $retryAfter);
+
+        $this->assertSame('Too many requests', $exception->getMessage());
+        $this->assertSame($retryAfter, $exception->getRetryAfter());
+    }
+
     public function testValidationExceptionBatchSizeExceeded(): void
     {
         $exception = ValidationException::batchSizeExceeded(100, 50);
@@ -42,6 +99,21 @@ final class ExceptionTest extends TestCase
         $violations = $exception->getViolations();
         $this->assertSame('100', $violations['size']);
         $this->assertSame('50', $violations['limit']);
+    }
+
+    public function testValidationExceptionEmptyViolations(): void
+    {
+        $exception = new ValidationException('Test');
+
+        $this->assertSame([], $exception->getViolations());
+    }
+
+    public function testValidationExceptionGetViolations(): void
+    {
+        $violations = ['field1' => 'error1', 'field2' => 'error2'];
+        $exception = new ValidationException('Test', $violations);
+
+        $this->assertSame($violations, $exception->getViolations());
     }
 
     public function testValidationExceptionInvalidMethod(): void
@@ -72,78 +144,5 @@ final class ExceptionTest extends TestCase
 
         $violations = $exception->getViolations();
         $this->assertSame('../etc/passwd', $violations['path']);
-    }
-
-    public function testValidationExceptionGetViolations(): void
-    {
-        $violations = ['field1' => 'error1', 'field2' => 'error2'];
-        $exception = new ValidationException('Test', $violations);
-
-        $this->assertSame($violations, $exception->getViolations());
-    }
-
-    public function testValidationExceptionEmptyViolations(): void
-    {
-        $exception = new ValidationException('Test');
-
-        $this->assertSame([], $exception->getViolations());
-    }
-
-    public function testParseExceptionInvalidJson(): void
-    {
-        $exception = ParseException::invalidJson('Syntax error');
-
-        $this->assertInstanceOf(ParseException::class, $exception);
-        $this->assertStringContainsString('Invalid JSON: Syntax error', $exception->getMessage());
-    }
-
-    public function testParseExceptionMalformedRequest(): void
-    {
-        $exception = ParseException::malformedRequest('Missing required field');
-
-        $this->assertStringContainsString('Malformed batch request: Missing required field', $exception->getMessage());
-    }
-
-
-    public function testExecutionExceptionTransactionFailed(): void
-    {
-        $exception = ExecutionException::transactionFailed(5, 'Database connection lost');
-
-        $this->assertInstanceOf(ExecutionException::class, $exception);
-        $this->assertStringContainsString('Transaction 5 failed', $exception->getMessage());
-        $this->assertStringContainsString('Database connection lost', $exception->getMessage());
-    }
-
-    public function testRateLimitExceptionDefault(): void
-    {
-        $exception = new RateLimitException();
-
-        $this->assertInstanceOf(RateLimitException::class, $exception);
-        $this->assertSame('Rate limit exceeded', $exception->getMessage());
-        $this->assertNull($exception->getRetryAfter());
-    }
-
-    public function testRateLimitExceptionWithRetryAfter(): void
-    {
-        $retryAfter = time() + 3600;
-        $exception = new RateLimitException('Too many requests', $retryAfter);
-
-        $this->assertSame('Too many requests', $exception->getMessage());
-        $this->assertSame($retryAfter, $exception->getRetryAfter());
-    }
-
-    public function testRateLimitExceptionGetRetryAfter(): void
-    {
-        $exception = new RateLimitException('Test', 12345);
-
-        $this->assertSame(12345, $exception->getRetryAfter());
-    }
-
-    public function testExceptionsInheritance(): void
-    {
-        $this->assertInstanceOf(BatchRequestException::class, new ValidationException('test'));
-        $this->assertInstanceOf(BatchRequestException::class, new ParseException('test'));
-        $this->assertInstanceOf(BatchRequestException::class, new ExecutionException('test'));
-        $this->assertInstanceOf(BatchRequestException::class, new RateLimitException('test'));
     }
 }
