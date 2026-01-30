@@ -1,4 +1,4 @@
-# Lemric Batch Request for Symfony
+# Lemric Batch Request for Symfony and Laravel
 <img src="./doc/logo.webp" width="250" height="250">
 
 ## Installing
