@@ -33,11 +33,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
     public function handle(ProcessBatchRequestCommandInterface $command): BatchResponseInterface
     {
         $batchRequest = $command->getBatchRequest();
-        $logger = $this->logger ?? new NullLogger();
-
-        // Disable logging for large batch requests to improve performance
-        $isLargeBatch = $batchRequest->count() > 1000;
-        $effectiveLogger = $isLargeBatch ? new NullLogger() : $logger;
+        $effectiveLogger = $this->logger ?? new NullLogger();
 
         $effectiveLogger->info('Processing batch request', [
             'transaction_count' => $batchRequest->count(),

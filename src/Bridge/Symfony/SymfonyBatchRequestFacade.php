@@ -21,6 +21,7 @@ use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Throwable;
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Symfony facade for batch request processing.
@@ -78,7 +79,7 @@ final readonly class SymfonyBatchRequestFacade
             $this->logError($e);
 
             return $this->createErrorResponse(
-                $e->getMessage(),
+                'Internal server error',
                 Response::HTTP_INTERNAL_SERVER_ERROR,
                 'system_error',
             );
@@ -95,10 +96,21 @@ final readonly class SymfonyBatchRequestFacade
         }
 
         $limiter = $this->rateLimiterFactory->create($request->getClientIp() ?? 'unknown');
-        $content = $request->getContent();
 
-        $decoded = json_decode($content, true);
-        $transactionCount = is_array($decoded) ? count($decoded) : 1;
+        $transactionCount = 1;
+        try {
+            $decoded = json_decode(
+                $request->getContent(),
+                true,
+                32,
+                JSON_THROW_ON_ERROR,
+            );
+            if (is_array($decoded)) {
+                $transactionCount = max(1, count($decoded));
+            }
+        } catch (Throwable) {
+            // keep default of 1
+        }
 
         $limit = $limiter->consume($transactionCount);
 
@@ -146,23 +158,6 @@ final readonly class SymfonyBatchRequestFacade
      */
     private function extractContext(Request $request): array
     {
-        // Check if this is a large batch request to optimize context extraction
-        $content = $request->getContent();
-        $decoded = json_decode($content, true);
-        $isLargeBatch = is_array($decoded) && count($decoded) > 1000;
-
-        if ($isLargeBatch) {
-            // Minimal context for large batch requests
-            return [
-                'include_headers' => false,
-                'client_identifier' => $request->getClientIp() ?? 'unknown',
-                'headers' => [],
-                'cookies' => [],
-                'files' => [],
-                'server' => ['IS_INTERNAL' => true],
-            ];
-        }
-
         return [
             'include_headers' => $request->query->getBoolean('include_headers')
                 || $request->request->getBoolean('include_headers'),
@@ -174,20 +169,9 @@ final readonly class SymfonyBatchRequestFacade
         ];
     }
 
-    private function getErrorType(int $statusCode): string
-    {
-        return match ($statusCode) {
-            Response::HTTP_BAD_REQUEST => 'validation_error',
-            Response::HTTP_METHOD_NOT_ALLOWED => 'method_error',
-            Response::HTTP_NOT_FOUND => 'routing_error',
-            default => 'system_error',
-        };
-    }
-
     private function logError(Throwable $e): void
     {
-        $logger = $this->logger ?? new NullLogger();
-        $logger->error('Batch request processing failed', [
+        ($this->logger ?? new NullLogger())->error('Batch request processing failed', [
             'exception' => get_class($e),
             'message' => $e->getMessage(),
             'trace' => $e->getTraceAsString(),

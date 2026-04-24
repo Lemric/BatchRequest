@@ -78,7 +78,7 @@ final readonly class LaravelBatchRequestFacade
             $this->logError($e);
 
             return $this->createErrorResponse(
-                $e->getMessage(),
+                'Internal server error',
                 Response::HTTP_INTERNAL_SERVER_ERROR,
                 'system_error',
             );

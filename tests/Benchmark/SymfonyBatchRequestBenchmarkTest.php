@@ -16,7 +16,6 @@ use Lemric\BatchRequest\Bridge\Symfony\SymfonyBatchRequestFacade;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\{Request, Response};
 use Symfony\Component\HttpKernel\HttpKernelInterface;
-
 use const PHP_EOL;
 
 class SymfonyBatchRequestBenchmarkTest extends TestCase
@@ -148,3 +147,4 @@ class SymfonyBatchRequestBenchmarkTest extends TestCase
         echo PHP_EOL."Symfony Small Batch (10 requests): {$executionTime}s".PHP_EOL;
     }
 }
+

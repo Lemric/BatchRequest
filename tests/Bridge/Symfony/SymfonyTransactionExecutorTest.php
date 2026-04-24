@@ -103,8 +103,8 @@ final class SymfonyTransactionExecutorTest extends TestCase
 
         $this->assertSame(500, $result['code']);
         $this->assertArrayHasKey('error', $result['body']);
-        $this->assertSame('RuntimeException', $result['body']['error']['type']);
-        $this->assertSame('Database error', $result['body']['error']['message']);
+        $this->assertSame('ExecutionException', $result['body']['error']['type']);
+        $this->assertSame('Internal server error', $result['body']['error']['message']);
     }
 
     public function testExecuteHandlesHttpException(): void

@@ -47,7 +47,7 @@ class LaravelServiceProviderTest extends TestCase
             ->method('singleton')
             ->with(
                 LaravelBatchRequestFacade::class,
-                $this->isType('callable'),
+                $this->callback(static fn ($value): bool => is_callable($value)),
             )
             ->willReturnCallback(function ($abstract, $concrete) {
                 // Simulate the callback execution

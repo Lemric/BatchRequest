@@ -15,26 +15,54 @@ namespace Lemric\BatchRequest\Parser;
 use Lemric\BatchRequest\{BatchRequestInterface, Transaction};
 use Lemric\BatchRequest\Exception\ParseException;
 use Lemric\BatchRequest\Model\BatchRequest;
-
 use function array_map;
 use function explode;
 use function in_array;
 use function is_array;
 use function json_decode;
-use function json_last_error;
-use function json_last_error_msg;
 use function parse_str;
 use function str_contains;
-
-use const JSON_ERROR_NONE;
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Parses JSON batch requests efficiently without unnecessary tokenization.
  */
 final readonly class JsonBatchRequestParser implements ParserInterface
 {
-    public function __construct()
-    {
+    /**
+     * Maximum JSON nesting depth.
+     */
+    private const MAX_JSON_DEPTH = 32;
+
+    /**
+     * Maximum JSON payload size in bytes (5 MiB).
+     */
+    private const DEFAULT_MAX_CONTENT_LENGTH = 5 * 1024 * 1024;
+
+    /**
+     * Headers that MUST NOT be forwarded from the parent request to sub-requests.
+     */
+    private const SENSITIVE_CONTEXT_HEADERS = [
+        'host',
+        'x-forwarded-for',
+        'x-forwarded-host',
+        'x-forwarded-proto',
+        'x-forwarded-port',
+        'x-real-ip',
+        'forwarded',
+        'connection',
+        'keep-alive',
+        'proxy-authenticate',
+        'proxy-authorization',
+        'te',
+        'trailer',
+        'transfer-encoding',
+        'upgrade',
+    ];
+
+    public function __construct(
+        private int $maxContentLength = self::DEFAULT_MAX_CONTENT_LENGTH,
+    ) {
     }
 
     public function parse(string $content, array $context = []): BatchRequestInterface
@@ -43,9 +71,16 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             throw ParseException::malformedRequest('Empty content');
         }
 
-        $data = json_decode($content, true);
-        if (JSON_ERROR_NONE !== json_last_error()) {
-            throw ParseException::invalidJson(json_last_error_msg());
+        if (strlen($content) > $this->maxContentLength) {
+            throw ParseException::malformedRequest(
+                sprintf('Payload exceeds %d bytes', $this->maxContentLength),
+            );
+        }
+
+        try {
+            $data = json_decode($content, true, self::MAX_JSON_DEPTH, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw ParseException::invalidJson($e->getMessage());
         }
 
         if (!is_array($data)) {
@@ -119,8 +154,12 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             if (is_array($data['body'])) {
                 $parameters = $data['body'];
             } elseif (is_string($data['body']) && '' !== $data['body']) {
-                parse_str($data['body'], $parsed);
-                $parameters = $parsed;
+                $body = $data['body'];
+                $trimmed = ltrim($body);
+                if ('' !== $trimmed && '{' !== $trimmed[0] && '[' !== $trimmed[0]) {
+                    parse_str($body, $parsed);
+                    $parameters = $parsed;
+                }
             }
         }
 
@@ -208,6 +247,9 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         $result = [];
         foreach ($headers as $key => $value) {
+            if (in_array(strtolower((string) $key), self::SENSITIVE_CONTEXT_HEADERS, true)) {
+                continue;
+            }
             if (is_array($value)) {
                 $result[(string) $key] = $value;
             } else {

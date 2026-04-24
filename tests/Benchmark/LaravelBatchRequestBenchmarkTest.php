@@ -16,7 +16,6 @@ use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\{Request, Response};
 use Lemric\BatchRequest\Bridge\Laravel\LaravelBatchRequestFacade;
 use PHPUnit\Framework\TestCase;
-
 use const PHP_EOL;
 
 class LaravelBatchRequestBenchmarkTest extends TestCase
@@ -148,3 +147,4 @@ class LaravelBatchRequestBenchmarkTest extends TestCase
         echo PHP_EOL."Laravel Small Batch (10 requests): {$executionTime}s".PHP_EOL;
     }
 }
+

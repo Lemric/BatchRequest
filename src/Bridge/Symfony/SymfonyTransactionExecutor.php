@@ -19,10 +19,8 @@ use Symfony\Component\HttpFoundation\{Request, Response};
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Throwable;
-
 use function is_array;
 use function json_decode;
-
 use const JSON_THROW_ON_ERROR;
 
 /**
@@ -44,9 +42,11 @@ final readonly class SymfonyTransactionExecutor implements TransactionExecutorIn
 
             return $this->formatResponse($response);
         } catch (HttpExceptionInterface $e) {
-            return $this->createErrorResponse($e, $e->getStatusCode());
+            // HTTP exceptions (e.g. NotFound, MethodNotAllowed) — their short class
+            // name and message are safe and informative for API clients.
+            return $this->createErrorResponse($e->getStatusCode(), (new ReflectionClass($e))->getShortName(), $e->getMessage());
         } catch (Throwable $e) {
-            return $this->createErrorResponse($e, Response::HTTP_INTERNAL_SERVER_ERROR);
+            return $this->createErrorResponse(Response::HTTP_INTERNAL_SERVER_ERROR, 'ExecutionException', 'Internal server error');
         }
     }
 
@@ -55,16 +55,14 @@ final readonly class SymfonyTransactionExecutor implements TransactionExecutorIn
      *
      * @return array{code: int, body: array{error: array{type: string, message: string}}}
      */
-    private function createErrorResponse(Throwable $e, int $statusCode): array
+    private function createErrorResponse(int $statusCode, string $type, string $message): array
     {
-        $reflection = new ReflectionClass($e);
-
         return [
             'code' => $statusCode,
             'body' => [
                 'error' => [
-                    'type' => $reflection->getShortName(),
-                    'message' => $e->getMessage(),
+                    'type' => $type,
+                    'message' => $message,
                 ],
             ],
         ];

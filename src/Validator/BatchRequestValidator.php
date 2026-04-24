@@ -38,14 +38,8 @@ final readonly class BatchRequestValidator implements ValidatorInterface
             throw ValidationException::batchSizeExceeded($batchRequest->count(), $this->maxBatchSize);
         }
 
-        // For large batch requests, only validate the first few transactions
-        // to improve performance while maintaining security
-        $transactions = $batchRequest->getTransactions();
-        $isLargeBatch = count($transactions) > 1000;
-        $validationLimit = $isLargeBatch ? 100 : count($transactions);
-
-        for ($i = 0; $i < $validationLimit; ++$i) {
-            $this->transactionValidator->validate($transactions[$i]);
+        foreach ($batchRequest->getTransactions() as $transaction) {
+            $this->transactionValidator->validate($transaction);
         }
     }
 }

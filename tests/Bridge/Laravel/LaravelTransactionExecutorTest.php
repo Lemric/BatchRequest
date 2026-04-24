@@ -122,8 +122,8 @@ class LaravelTransactionExecutorTest extends TestCase
 
         $this->assertEquals(500, $result['code']);
         $this->assertArrayHasKey('error', $result['body']);
-        $this->assertEquals('Exception', $result['body']['error']['type']);
-        $this->assertEquals('Database connection failed', $result['body']['error']['message']);
+        $this->assertEquals('ExecutionException', $result['body']['error']['type']);
+        $this->assertEquals('Internal server error', $result['body']['error']['message']);
         $this->assertEquals([], $result['headers']);
     }
 

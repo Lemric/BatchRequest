@@ -12,19 +12,32 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Bridge\Laravel;
 
+use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 
 /**
  * Laravel service provider for batch request processing.
  */
-class LaravelServiceProvider extends ServiceProvider
+final class LaravelServiceProvider extends ServiceProvider
 {
+    private const CONFIG_PATH = __DIR__.'/../../../config/batch-request.php';
+
     /**
      * Bootstrap services.
      */
     public function boot(): void
     {
-        // Configuration publishing would go here if needed
+        if (!$this->app instanceof Application) {
+            return;
+        }
+
+        $this->mergeConfigFrom(self::CONFIG_PATH, 'batch-request');
+
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                self::CONFIG_PATH => $this->app->configPath('batch-request.php'),
+            ], 'batch-request-config');
+        }
     }
 
     /**
@@ -34,10 +47,15 @@ class LaravelServiceProvider extends ServiceProvider
     {
         $this->app->singleton(LaravelBatchRequestFacade::class, function ($app) {
             /* @var \Illuminate\Contracts\Container\Container $app */
+            $maxBatchSize = 50;
+            if (method_exists($app, 'bound') && $app->bound('config')) {
+                $maxBatchSize = (int) $app->make('config')->get('batch-request.max_batch_size', 50);
+            }
+
             return new LaravelBatchRequestFacade(
                 $app->make('Illuminate\Contracts\Http\Kernel'),
                 $app->make('log'),
-                50, // Default max batch size
+                $maxBatchSize,
             );
         });
     }

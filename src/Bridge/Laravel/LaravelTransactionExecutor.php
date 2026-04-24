@@ -17,7 +17,6 @@ use Illuminate\Http\{Request, Response};
 use Lemric\BatchRequest\Handler\TransactionExecutorInterface;
 use Lemric\BatchRequest\TransactionInterface;
 use Throwable;
-
 use const JSON_THROW_ON_ERROR;
 
 /**
@@ -45,8 +44,8 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
                 'code' => 500,
                 'body' => [
                     'error' => [
-                        'type' => get_class($e),
-                        'message' => $e->getMessage(),
+                        'type' => 'ExecutionException',
+                        'message' => 'Internal server error',
                     ],
                 ],
                 'headers' => [],

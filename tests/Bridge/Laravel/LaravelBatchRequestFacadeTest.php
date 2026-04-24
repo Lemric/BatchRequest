@@ -221,3 +221,4 @@ class LaravelBatchRequestFacadeTest extends TestCase
         $this->assertEquals('test', $data[0]['headers']['x-custom-header']);
     }
 }
+
