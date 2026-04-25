@@ -1,0 +1,155 @@
+{% extends '@WebProfiler/Profiler/layout.html.twig' %}
+
+{% block toolbar %}
+    {% if collector.total > 0 %}
+        {% set icon %}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" aria-hidden="true">
+                <path fill="#FFF" d="M3 5h22v4H3zM3 12h22v4H3zM3 19h22v4H3z"/>
+            </svg>
+            <span class="sf-toolbar-value">{{ collector.total }}</span>
+            <span class="sf-toolbar-label">batch</span>
+        {% endset %}
+
+        {% set text %}
+            <div class="sf-toolbar-info-piece">
+                <b>Transactions</b>
+                <span>{{ collector.total }}</span>
+            </div>
+            <div class="sf-toolbar-info-piece">
+                <b>Failures</b>
+                <span class="sf-toolbar-status {{ collector.failures > 0 ? 'sf-toolbar-status-red' : 'sf-toolbar-status-green' }}">
+                    {{ collector.failures }}
+                </span>
+            </div>
+            <div class="sf-toolbar-info-piece">
+                <b>Total time</b>
+                <span>{{ collector.durationMs|number_format(2, '.', ' ') }} ms</span>
+            </div>
+            <div class="sf-toolbar-info-piece">
+                <b>Response payload</b>
+                <span>{{ (collector.responseBytes / 1024)|number_format(2, '.', ' ') }} KiB</span>
+            </div>
+        {% endset %}
+
+        {{ include('@WebProfiler/Profiler/toolbar_item.html.twig', {
+            link: profiler_url,
+            status: collector.failures > 0 ? 'red' : 'normal'
+        }) }}
+    {% endif %}
+{% endblock %}
+
+{% block menu %}
+    <span class="label label-status-{{ collector.failures > 0 ? 'error' : (collector.total > 0 ? 'success' : 'muted') }} {{ collector.total == 0 ? 'disabled' }}">
+        <span class="icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" aria-hidden="true">
+                <path fill="#A0A0A0" d="M3 5h22v4H3zM3 12h22v4H3zM3 19h22v4H3z"/>
+            </svg>
+        </span>
+        <strong>Batch Request</strong>
+        {% if collector.total > 0 %}
+            <span class="count"><span>{{ collector.total }}</span></span>
+        {% endif %}
+    </span>
+{% endblock %}
+
+{% block panel %}
+    <h2>Batch Request</h2>
+
+    {% if collector.total == 0 %}
+        <div class="empty">
+            <p>No batch transactions were processed during this request.</p>
+        </div>
+    {% else %}
+        <div class="metrics">
+            <div class="metric">
+                <span class="value">{{ collector.total }}</span>
+                <span class="label">Transactions</span>
+            </div>
+            <div class="metric">
+                <span class="value {{ collector.failures > 0 ? 'status-error' }}">{{ collector.failures }}</span>
+                <span class="label">Failures</span>
+            </div>
+            <div class="metric">
+                <span class="value">{{ collector.durationMs|number_format(2, '.', ' ') }} <span class="unit">ms</span></span>
+                <span class="label">Cumulative time</span>
+            </div>
+            <div class="metric">
+                <span class="value">{{ (collector.responseBytes / 1024)|number_format(2, '.', ' ') }} <span class="unit">KiB</span></span>
+                <span class="label">Response payload</span>
+            </div>
+        </div>
+
+        <h3>Endpoint</h3>
+        <p>
+            <code>{{ collector.requestMethod }} {{ collector.requestUri }}</code>
+        </p>
+
+        <h3>Transactions</h3>
+        <table>
+            <thead>
+            <tr>
+                <th>#</th>
+                <th>Method</th>
+                <th>URI</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Memory Δ</th>
+                <th>Response size</th>
+                <th>Result</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for tx in collector.transactions %}
+                <tr class="{{ tx.successful ? 'status-success' : 'status-error' }}">
+                    <td>{{ tx.index }}</td>
+                    <td><span class="label">{{ tx.method }}</span></td>
+                    <td><code>{{ tx.uri }}</code></td>
+                    <td>
+                        <span class="label {{ tx.status >= 500 ? 'status-error' : (tx.status >= 400 ? 'status-warning' : 'status-success') }}">
+                            {{ tx.status }}
+                        </span>
+                    </td>
+                    <td>{{ tx.duration_ms|number_format(2, '.', ' ') }} ms</td>
+                    <td>{{ (tx.memory_delta / 1024)|number_format(2, '.', ' ') }} KiB</td>
+                    <td>{{ (tx.response_body_size / 1024)|number_format(2, '.', ' ') }} KiB</td>
+                    <td>
+                        {% if tx.successful %}
+                            <span class="label status-success">OK</span>
+                        {% else %}
+                            <span class="label status-error">{{ tx.error.type|default('error') }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr class="context">
+                    <td colspan="8">
+                        <details>
+                            <summary>Inspect transaction #{{ tx.index }}</summary>
+
+                            <h4>Request headers</h4>
+                            {{ profiler_dump(tx.request_headers, maxDepth=2) }}
+
+                            <h4>Request body{{ tx.request_body_truncated ? ' (truncated)' }}</h4>
+                            {{ profiler_dump(tx.request_body, maxDepth=2) }}
+
+                            <h4>Response headers</h4>
+                            {{ profiler_dump(tx.response_headers, maxDepth=2) }}
+
+                            <h4>Response body</h4>
+                            {{ profiler_dump(tx.response_body, maxDepth=3) }}
+
+                            {% if tx.error %}
+                                <h4>Error</h4>
+                                <p>
+                                    <strong>{{ tx.error.type }}</strong>:
+                                    {{ tx.error.message }}
+                                </p>
+                            {% endif %}
+                        </details>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}
+

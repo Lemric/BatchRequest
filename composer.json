@@ -37,6 +37,9 @@
     "dg/bypass-finals": "^1.9",
     "symfony/http-client": ">=5.1",
     "symfony/http-kernel": ">=5.1",
+    "symfony/dependency-injection": "^6.4 | ^7.0 | ^8.0",
+    "symfony/config": "^6.4 | ^7.0 | ^8.0",
+    "symfony/var-dumper": "^6.4 | ^7.0 | ^8.0",
     "symfony/polyfill-php83": "^v1.30.0",
     "illuminate/http": "^12.33"
   },
@@ -46,6 +49,9 @@
   },
   "suggest": {
     "symfony/rate-limiter": "A \"rate limiter\" controls how frequently some event (e.g. an HTTP request or a login attempt) is allowed to happen.",
+    "symfony/web-profiler-bundle": "Required to display the Batch Request panel in the Symfony Profiler (^6.4|^7.0|^8.0).",
+    "symfony/twig-bundle": "Required to render the Batch Request profiler panel template (^6.4|^7.0|^8.0).",
+    "symfony/dependency-injection": "Required to use the bundled Symfony BatchRequestBundle (^6.4|^7.0|^8.0).",
     "illuminate/support": "Required for Laravel integration (^10.0|^11.0)"
   },
   "scripts": {

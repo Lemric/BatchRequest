@@ -276,6 +276,84 @@ Lemric\BatchRequest\BatchRequest: ~
         $rateLimiterFactory: '@limiter.authenticated_api' <-- Use proper configuration service name
 ```
 
+### Symfony Profiler integration
+
+The package ships a first-class Symfony Profiler integration so you can
+debug every batch — and every individual sub-request — straight from the
+WebProfiler toolbar. It is compatible with **Symfony 6.4 → 8.x**.
+
+#### 1. Register the bundle
+
+```php
+// config/bundles.php
+return [
+    // ...
+    Lemric\BatchRequest\Bridge\Symfony\BatchRequestBundle::class => ['all' => true],
+];
+```
+
+The bundle auto-registers `SymfonyBatchRequestFacade` and
+`SymfonyTransactionExecutor` as public services, so you can keep
+injecting the facade in your controllers exactly as before.
+
+#### 2. (Optional) Configuration
+
+```yaml
+# config/packages/lemric_batch_request.yaml
+lemric_batch_request:
+    max_batch_size: 50
+    max_concurrency: 8
+    max_transaction_content_length: 262144
+    forwarded_headers_whitelist: ['x-trace-id', 'x-request-id']
+    rate_limiter: limiter.authenticated_api   # service id, optional
+    profiler: '%kernel.debug%'                # default: kernel.debug
+```
+
+All keys are optional. Defaults match the constructor of
+`SymfonyBatchRequestFacade`. The `profiler` flag lets you force-enable
+or force-disable the profiler integration regardless of `kernel.debug`.
+
+#### 3. What you get in the profiler
+
+When the profiler is enabled, the bundle decorates the transaction
+executor with `Lemric\BatchRequest\Bridge\Symfony\Profiler\TraceableTransactionExecutor`
+and registers a `BatchRequestDataCollector`. The result is a dedicated
+**Batch Request** panel in the Symfony Profiler exposing, for the
+current request:
+
+- A toolbar item with the number of sub-requests and a red badge when
+  any of them failed.
+- Aggregated metrics: total transactions, failures, cumulative
+  duration (ms), total response payload (KiB).
+- A per-transaction table with method, URI, HTTP status, duration,
+  memory delta and result.
+- A collapsible *Inspect transaction* section for each row containing
+  full request headers, request body (truncated to 16 KiB with an
+  explicit marker), response headers, decoded response body and the
+  exception/error envelope when applicable.
+
+The traceable executor is tagged with `kernel.reset`, so the integration
+is safe to use in long-running workers (FrankenPHP, Swoole, RoadRunner,
+FPM with `kernel.reset` enabled) — the trace buffer is cleared between
+requests.
+
+> **Note:** rendering the panel requires `symfony/web-profiler-bundle`
+> and `symfony/twig-bundle` (already part of every standard Symfony
+> dev install). The runtime collector itself only depends on
+> `symfony/http-kernel`.
+
+#### 4. Disabling the integration in production
+
+The profiler services are only wired when `profiler` is `true` (or by
+default when `%kernel.debug%` is `true`), so production builds pay no
+runtime cost. To disable it explicitly even in dev:
+
+```yaml
+# config/packages/dev/lemric_batch_request.yaml
+lemric_batch_request:
+    profiler: false
+```
+
 ## Example for Laravel
 ### Controller
 ```php

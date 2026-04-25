@@ -13,7 +13,10 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Bridge\Symfony;
 
 use Lemric\BatchRequest\Exception\{RateLimitException};
-use Lemric\BatchRequest\Handler\{BatchRequestHandler, FiberExecutionStrategy, ProcessBatchRequestCommand};
+use Lemric\BatchRequest\Handler\{BatchRequestHandler,
+    FiberExecutionStrategy,
+    ProcessBatchRequestCommand,
+    TransactionExecutorInterface};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
 use Lemric\BatchRequest\Validator\{BatchRequestValidator, TransactionValidator};
 use Psr\Log\{LoggerInterface, NullLogger};
@@ -49,8 +52,9 @@ final readonly class SymfonyBatchRequestFacade
         int $maxConcurrency = 8,
         int $maxTransactionContentLength = 262144,
         array $forwardedHeadersWhitelist = [],
+        ?TransactionExecutorInterface $transactionExecutor = null,
     ) {
-        $executor = new SymfonyTransactionExecutor($this->httpKernel);
+        $executor = $transactionExecutor ?? new SymfonyTransactionExecutor($this->httpKernel);
         $transactionValidator = new TransactionValidator();
         $validator = new BatchRequestValidator(
             $transactionValidator,
