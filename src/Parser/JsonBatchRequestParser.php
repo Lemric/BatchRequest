@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Parser;
 
+use JsonException;
 use Lemric\BatchRequest\{BatchRequestInterface, Transaction};
 use Lemric\BatchRequest\Exception\ParseException;
 use Lemric\BatchRequest\Model\BatchRequest;
@@ -30,14 +31,14 @@ use const JSON_THROW_ON_ERROR;
 final readonly class JsonBatchRequestParser implements ParserInterface
 {
     /**
-     * Maximum JSON nesting depth.
-     */
-    private const MAX_JSON_DEPTH = 32;
-
-    /**
      * Maximum JSON payload size in bytes (5 MiB).
      */
     private const DEFAULT_MAX_CONTENT_LENGTH = 5 * 1024 * 1024;
+
+    /**
+     * Maximum JSON nesting depth.
+     */
+    private const MAX_JSON_DEPTH = 32;
 
     /**
      * Headers that MUST NOT be forwarded from the parent request to sub-requests.
@@ -71,15 +72,13 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             throw ParseException::malformedRequest('Empty content');
         }
 
-        if (strlen($content) > $this->maxContentLength) {
-            throw ParseException::malformedRequest(
-                sprintf('Payload exceeds %d bytes', $this->maxContentLength),
-            );
+        if (mb_strlen($content) > $this->maxContentLength) {
+            throw ParseException::malformedRequest(sprintf('Payload exceeds %d bytes', $this->maxContentLength));
         }
 
         try {
             $data = json_decode($content, true, self::MAX_JSON_DEPTH, JSON_THROW_ON_ERROR);
-        } catch (\JsonException $e) {
+        } catch (JsonException $e) {
             throw ParseException::invalidJson($e->getMessage());
         }
 
@@ -155,7 +154,7 @@ final readonly class JsonBatchRequestParser implements ParserInterface
                 $parameters = $data['body'];
             } elseif (is_string($data['body']) && '' !== $data['body']) {
                 $body = $data['body'];
-                $trimmed = ltrim($body);
+                $trimmed = mb_ltrim($body);
                 if ('' !== $trimmed && '{' !== $trimmed[0] && '[' !== $trimmed[0]) {
                     parse_str($body, $parsed);
                     $parameters = $parsed;
@@ -247,7 +246,7 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         $result = [];
         foreach ($headers as $key => $value) {
-            if (in_array(strtolower((string) $key), self::SENSITIVE_CONTEXT_HEADERS, true)) {
+            if (in_array(mb_strtolower((string) $key), self::SENSITIVE_CONTEXT_HEADERS, true)) {
                 continue;
             }
             if (is_array($value)) {

@@ -53,6 +53,65 @@ final class SymfonyTransactionExecutorTest extends TestCase
         $this->assertSame('Bearer token', $capturedRequest->headers->get('Authorization'));
     }
 
+    /**
+     * RFC 7807: bodies served as `application/problem+json` must be decoded
+     * just like plain JSON.
+     */
+    public function testExecuteDecodesProblemJsonResponse(): void
+    {
+        $problem = json_encode([
+            'type' => 'https://example.com/probs/out-of-credit',
+            'title' => 'You do not have enough credit.',
+            'status' => 402,
+            'detail' => 'Your current balance is 30, but that costs 50.',
+        ]);
+
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel
+            ->method('handle')
+            ->willReturn(new Response($problem, 402, ['Content-Type' => 'application/problem+json; charset=utf-8']));
+
+        $executor = new SymfonyTransactionExecutor($httpKernel);
+        $result = $executor->execute(new Transaction('GET', '/api/account'));
+
+        $this->assertSame(402, $result['code']);
+        $this->assertIsArray($result['body']);
+        $this->assertSame('You do not have enough credit.', $result['body']['title']);
+    }
+
+    /**
+     * RFC 6839 §3.1: any `+json` structured-syntax suffix must be decoded.
+     */
+    public function testExecuteDecodesVendorJsonSuffix(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel
+            ->method('handle')
+            ->willReturn(new Response('{"data":{"id":"1"}}', 200, ['Content-Type' => 'application/vnd.api+json']));
+
+        $executor = new SymfonyTransactionExecutor($httpKernel);
+        $result = $executor->execute(new Transaction('GET', '/api/posts/1'));
+
+        $this->assertSame(['data' => ['id' => '1']], $result['body']);
+    }
+
+    /**
+     * Synthesized error sub-responses are RFC 7807 problem documents.
+     */
+    public function testExecuteErrorResponsesUseProblemJsonContentType(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel
+            ->method('handle')
+            ->willThrowException(new NotFoundHttpException('Resource not found'));
+
+        $executor = new SymfonyTransactionExecutor($httpKernel);
+        $result = $executor->execute(new Transaction('GET', '/api/posts/999'));
+
+        $this->assertArrayHasKey('headers', $result);
+        $this->assertSame('application/problem+json', $result['headers']['Content-Type']);
+    }
+
     public function testExecuteExtractsHeaders(): void
     {
         $httpKernel = $this->createMock(HttpKernelInterface::class);
@@ -190,7 +249,9 @@ final class SymfonyTransactionExecutorTest extends TestCase
         $result = $executor->execute($transaction);
 
         $this->assertSame(200, $result['code']);
-        $this->assertSame([], $result['body']);
+        // Empty/no-content responses produce an empty string body for type
+        // consistency (string everywhere except decoded JSON / base64).
+        $this->assertSame('', $result['body']);
     }
 
     public function testExecuteReturnsSuccessfulResponse(): void

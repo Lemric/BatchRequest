@@ -147,4 +147,3 @@ class SymfonyBatchRequestBenchmarkTest extends TestCase
         echo PHP_EOL."Symfony Small Batch (10 requests): {$executionTime}s".PHP_EOL;
     }
 }
-

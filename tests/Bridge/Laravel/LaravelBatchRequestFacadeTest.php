@@ -84,6 +84,8 @@ class LaravelBatchRequestFacadeTest extends TestCase
         $data = $response->getData(true);
         $this->assertEquals('error', $data['result']);
         $this->assertArrayHasKey('errors', $data);
+        // RFC 7807: top-level error responses are problem documents.
+        $this->assertSame('application/problem+json', $response->headers->get('Content-Type'));
     }
 
     public function testHandleLargeBatchRequest(): void
@@ -221,4 +223,3 @@ class LaravelBatchRequestFacadeTest extends TestCase
         $this->assertEquals('test', $data[0]['headers']['x-custom-header']);
     }
 }
-

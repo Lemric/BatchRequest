@@ -31,6 +31,61 @@ class LaravelTransactionExecutorTest extends TestCase
         $this->executor = new LaravelTransactionExecutor($this->kernel);
     }
 
+    /**
+     * RFC 7807: bodies served as `application/problem+json` must be decoded
+     * just like plain JSON.
+     */
+    public function testExecuteDecodesProblemJsonResponse(): void
+    {
+        $transaction = Transaction::fromArray([
+            'relative_url' => '/api/account',
+            'method' => 'GET',
+        ]);
+
+        $problem = json_encode([
+            'type' => 'https://example.com/probs/out-of-credit',
+            'title' => 'You do not have enough credit.',
+            'status' => 402,
+            'detail' => 'Your current balance is 30, but that costs 50.',
+        ]);
+        $response = new Response($problem, 402);
+        $response->headers->set('Content-Type', 'application/problem+json; charset=utf-8');
+
+        $this->kernel
+            ->expects($this->once())
+            ->method('handle')
+            ->willReturn($response);
+
+        $result = $this->executor->execute($transaction);
+
+        $this->assertSame(402, $result['code']);
+        $this->assertIsArray($result['body']);
+        $this->assertSame('You do not have enough credit.', $result['body']['title']);
+    }
+
+    /**
+     * RFC 6839 §3.1: any `+json` structured-syntax suffix must be decoded.
+     */
+    public function testExecuteDecodesVendorJsonSuffix(): void
+    {
+        $transaction = Transaction::fromArray([
+            'relative_url' => '/api/posts/1',
+            'method' => 'GET',
+        ]);
+
+        $response = new Response('{"data":{"id":"1"}}', 200);
+        $response->headers->set('Content-Type', 'application/vnd.api+json');
+
+        $this->kernel
+            ->expects($this->once())
+            ->method('handle')
+            ->willReturn($response);
+
+        $result = $this->executor->execute($transaction);
+
+        $this->assertSame(['data' => ['id' => '1']], $result['body']);
+    }
+
     public function testExecutePostRequestWithBody(): void
     {
         $transaction = Transaction::fromArray([
@@ -124,7 +179,8 @@ class LaravelTransactionExecutorTest extends TestCase
         $this->assertArrayHasKey('error', $result['body']);
         $this->assertEquals('ExecutionException', $result['body']['error']['type']);
         $this->assertEquals('Internal server error', $result['body']['error']['message']);
-        $this->assertEquals([], $result['headers']);
+        // RFC 7807: synthesized error sub-responses must be problem documents.
+        $this->assertSame('application/problem+json', $result['headers']['Content-Type']);
     }
 
     public function testExecuteRequestWithFiles(): void

@@ -13,20 +13,23 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Bridge\Laravel;
 
 use Illuminate\Contracts\Http\Kernel;
-use Illuminate\Http\{Request, Response};
+use Illuminate\Http\{Request};
+use Lemric\BatchRequest\Bridge\ResponseFormatter;
 use Lemric\BatchRequest\Handler\TransactionExecutorInterface;
 use Lemric\BatchRequest\TransactionInterface;
 use Throwable;
-use const JSON_THROW_ON_ERROR;
 
 /**
  * Executes transactions using Laravel's application kernel.
  */
 final readonly class LaravelTransactionExecutor implements TransactionExecutorInterface
 {
+    private ResponseFormatter $formatter;
+
     public function __construct(
         private Kernel $kernel,
     ) {
+        $this->formatter = new ResponseFormatter();
     }
 
     /**
@@ -38,7 +41,7 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
             $request = $this->createRequest($transaction);
             $response = $this->kernel->handle($request);
 
-            return $this->formatResponse($response);
+            return $this->formatter->format($response);
         } catch (Throwable $e) {
             return [
                 'code' => 500,
@@ -48,7 +51,10 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
                         'message' => 'Internal server error',
                     ],
                 ],
-                'headers' => [],
+                // RFC 7807: synthesized error sub-responses are problem documents.
+                'headers' => [
+                    'Content-Type' => 'application/problem+json',
+                ],
             ];
         }
     }
@@ -73,52 +79,5 @@ final readonly class LaravelTransactionExecutor implements TransactionExecutorIn
         }
 
         return $request;
-    }
-
-    /**
-     * Extracts headers from Laravel Response.
-     *
-     * @return array<string, string>
-     */
-    private function extractHeaders(Response $response): array
-    {
-        $headers = [];
-        foreach ($response->headers->all() as $name => $values) {
-            if (is_array($values)) {
-                $headers[$name] = (string) end($values);
-            } else {
-                $headers[$name] = (string) $values;
-            }
-        }
-
-        return $headers;
-    }
-
-    /**
-     * Formats Laravel Response into batch response format.
-     *
-     * @return array{code: int, body: mixed, headers: array<string, string>}
-     */
-    private function formatResponse(Response $response): array
-    {
-        $content = $response->getContent();
-        $body = false === $content ? [] : $content;
-
-        $contentType = $response->headers->get('Content-Type', '');
-        if (null !== $contentType && str_contains($contentType, 'application/json')) {
-            try {
-                $bodyString = is_string($body) ? $body : '';
-                $decoded = json_decode($bodyString, true, 512, JSON_THROW_ON_ERROR);
-                $body = is_array($decoded) ? $decoded : $body;
-            } catch (Throwable) {
-                // Keep original body if JSON decode fails
-            }
-        }
-
-        return [
-            'code' => $response->getStatusCode(),
-            'body' => $body,
-            'headers' => $this->extractHeaders($response),
-        ];
     }
 }

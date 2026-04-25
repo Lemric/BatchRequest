@@ -23,6 +23,11 @@ final readonly class TransactionValidator implements TransactionValidatorInterfa
     private const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
     /**
+     * Allowed characters in a header name per RFC 7230 §3.2.6 (tchar).
+     */
+    private const HEADER_NAME_PATTERN = '/^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$/';
+
+    /**
      * Patterns matching path-traversal / null-byte / CRLF / control characters.
      */
     private const PATH_TRAVERSAL_PATTERNS = [
@@ -33,16 +38,34 @@ final readonly class TransactionValidator implements TransactionValidatorInterfa
         '/%0[ad]/i',       // percent-encoded CR/LF
     ];
 
-    /**
-     * Allowed characters in a header name per RFC 7230 §3.2.6 (tchar).
-     */
-    private const HEADER_NAME_PATTERN = '/^[!#$%&\'*+\-.^_`|~0-9A-Za-z]+$/';
-
     public function validate(TransactionInterface $transaction): void
     {
         $this->validateMethod($transaction->getMethod());
         $this->validateUri($transaction->getUri());
         $this->validateHeaders($transaction->getHeaders());
+    }
+
+    /**
+     * HTTP Response Splitting and Header Injection. The validator must reject them.
+     *
+     * @param array<string, string|array<string>> $headers
+     */
+    private function validateHeaders(array $headers): void
+    {
+        foreach ($headers as $name => $value) {
+            $nameStr = (string) $name;
+            if ('' === $nameStr || !preg_match(self::HEADER_NAME_PATTERN, $nameStr)) {
+                throw ValidationException::invalidUrl(sprintf('Invalid header name: %s', $nameStr));
+            }
+
+            $values = is_array($value) ? $value : [$value];
+            foreach ($values as $singleValue) {
+                $singleString = (string) $singleValue;
+                if (preg_match('/[\r\n\x00]/', $singleString)) {
+                    throw ValidationException::invalidUrl(sprintf('Header "%s" contains forbidden control characters', $nameStr));
+                }
+            }
+        }
     }
 
     private function validateMethod(string $method): void
@@ -80,31 +103,6 @@ final readonly class TransactionValidator implements TransactionValidatorInterfa
 
         if (preg_match('/[<>"\']/', $uri)) {
             throw ValidationException::invalidUrl('URI contains potentially dangerous characters');
-        }
-    }
-
-    /**
-     * HTTP Response Splitting and Header Injection. The validator must reject them.
-     *
-     * @param array<string, string|array<string>> $headers
-     */
-    private function validateHeaders(array $headers): void
-    {
-        foreach ($headers as $name => $value) {
-            $nameStr = (string) $name;
-            if ('' === $nameStr || !preg_match(self::HEADER_NAME_PATTERN, $nameStr)) {
-                throw ValidationException::invalidUrl(sprintf('Invalid header name: %s', $nameStr));
-            }
-
-            $values = is_array($value) ? $value : [$value];
-            foreach ($values as $singleValue) {
-                $singleString = (string) $singleValue;
-                if (preg_match('/[\r\n\x00]/', $singleString)) {
-                    throw ValidationException::invalidUrl(
-                        sprintf('Header "%s" contains forbidden control characters', $nameStr),
-                    );
-                }
-            }
         }
     }
 }

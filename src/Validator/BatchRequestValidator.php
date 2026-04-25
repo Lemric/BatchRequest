@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Validator;
 
-use Lemric\BatchRequest\{BatchRequestInterface};
+use Lemric\BatchRequest\BatchRequestInterface;
 use Lemric\BatchRequest\Exception\ValidationException;
 
 /**

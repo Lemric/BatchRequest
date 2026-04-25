@@ -103,22 +103,119 @@ curl -X POST /batch
 
 ### Errors
 
-It is possible that one of your requested operations will fail. 
-This could be because you don't have permission to perform the requested operation. 
-The response is similar to the standard API, but encapsulated in batch response syntax:
+Individual operations within a batch may fail (e.g. missing permissions,
+validation errors, kernel exceptions). Failed sub-responses always carry
+`Content-Type: application/problem+json` (RFC 7807) so HTTP clients can
+dispatch on media type, while successful sub-responses keep
+`application/json` (or whatever the underlying handler returned).
+
+The error body keeps the legacy envelope `{"error": {"type": "...", "message": "..."}}`
+for backward compatibility — it is a valid problem document and may be
+extended by the application with additional RFC 7807 members
+(`title`, `status`, `detail`, `instance`, `type`).
 
 ```
 [
-    { "code": 403,
-      "headers": [
-          {"name":"WWW-Authenticate", "value":"OAuth…"},
-          {"name":"Content-Type", "value":"text/javascript; charset=UTF-8"} ],
-      "body": "{\"error\":{\"type\":\"OAuthException\", … }}"
+    {
+      "code": 403,
+      "headers": {
+          "Content-Type": "application/problem+json",
+          "WWW-Authenticate": "OAuth ..."
+      },
+      "body": {
+          "error": {
+              "type": "AccessDeniedHttpException",
+              "message": "Insufficient scope"
+          }
+      }
     }
 ]
 ```
 
-Other requests in the batch should still complete successfully and will be returned as normal with a 200 status code.
+The same rule applies to top-level failures returned by the facade
+(rate-limit exceeded, malformed batch envelope, internal errors): the
+HTTP response is served with `Content-Type: application/problem+json`
+and HTTP status 4xx/5xx. The body keeps the
+`{"result": "error", "errors": [...]}` envelope for backward
+compatibility:
+
+```
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/problem+json
+
+{
+    "result": "error",
+    "errors": [
+        { "type": "rate_limit_error", "message": "Too many requests" }
+    ]
+}
+```
+
+Successful batches continue to return `Content-Type: application/json`.
+Other requests in the batch complete independently and are returned as
+normal with their own status code and content type — a single failed
+sub-request never affects the success of the others.
+
+#### JSON response bodies (`+json` suffix, RFC 6839)
+
+Sub-responses whose `Content-Type` is `application/json`, `text/json`,
+or any structured-syntax suffix `*/*+json` (e.g.
+`application/problem+json`, `application/vnd.api+json`,
+`application/ld+json`) are decoded into the `body` field as an array
+instead of being returned as a raw JSON string. Charset and other media
+type parameters are ignored during detection.
+
+#### Mixed content types in a single batch
+
+A batch may freely mix sub-requests that return different media types —
+JSON, HTML, XML, SVG, PDF, PNG, `application/octet-stream`,
+`BinaryFileResponse`, `StreamedResponse`, `204 No Content`, etc. The
+formatter classifies each sub-response and shapes its `body` so the
+outer batch envelope (which is itself JSON) is always safe to serialise:
+
+| Response Content-Type                                                                 | `body` type | extra field             |
+|---------------------------------------------------------------------------------------|-------------|-------------------------|
+| `application/json`, `text/json`, `*/*+json`                                           | `array` (decoded) | —                       |
+| Malformed JSON with a JSON content type                                               | `string` (raw) | —                       |
+| `text/*` (html, plain, css, csv, …)                                                   | `string`    | —                       |
+| `application/xml`, `application/*+xml`, `image/svg+xml`, `application/javascript`, `application/yaml`, `application/x-www-form-urlencoded`, `application/graphql`, `application/sql` | `string`    | —                       |
+| Anything else (`image/png`, `application/pdf`, `application/octet-stream`, missing/unknown content type, …) | `string` (base64) | `body_encoding: "base64"` |
+| Empty body / `204 No Content`                                                         | `""` (empty string) | —                       |
+
+`BinaryFileResponse` and `StreamedResponse` are materialised before
+formatting (their `getContent()` returns `false`, which would otherwise
+silently drop the payload).
+
+Example mixed batch response:
+
+```json
+[
+    {
+        "code": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {"id": 1, "name": "Page A"}
+    },
+    {
+        "code": 200,
+        "headers": {"content-type": "text/html; charset=utf-8"},
+        "body": "<!doctype html><h1>Hello</h1>"
+    },
+    {
+        "code": 200,
+        "headers": {"content-type": "image/png"},
+        "body": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=",
+        "body_encoding": "base64"
+    },
+    {
+        "code": 204,
+        "headers": {},
+        "body": ""
+    }
+]
+```
+
+Clients should check for the optional `body_encoding` field; when it
+equals `"base64"`, decode the `body` to recover the original bytes.
 
 ### Timeouts
 

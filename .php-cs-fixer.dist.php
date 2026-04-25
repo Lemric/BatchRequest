@@ -9,7 +9,7 @@
  * @author Dominik Labudzinski <dominik@labudzinski.com>
  */
 declare(strict_types=1);
-if (!file_exists(__DIR__ . '/src')) {
+if (!file_exists(__DIR__.'/src')) {
     exit(0);
 }
 
@@ -130,13 +130,13 @@ $rules = [
 ];
 
 $finder = (new PhpCsFixer\Finder())
-    ->in([__DIR__ . '/src', __DIR__ . '/tests'])
+    ->in([__DIR__.'/src', __DIR__.'/tests'])
     ->exclude(['vendor', 'var'])
     ->name('*.php')
     ->append([__FILE__])
     ->notPath('#/Fixtures/#');
 
-return (new PhpCsFixer\Config())
+return( new PhpCsFixer\Config())
     ->setRules($rules)
     ->setRiskyAllowed(true)
     ->setFinder($finder)

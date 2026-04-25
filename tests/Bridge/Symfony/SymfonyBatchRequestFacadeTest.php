@@ -165,6 +165,8 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
         $data = json_decode($response->getContent(), true);
         $this->assertSame('error', $data['result']);
         $this->assertArrayHasKey('errors', $data);
+        // RFC 7807: top-level error responses are problem documents.
+        $this->assertSame('application/problem+json', $response->headers->get('Content-Type'));
     }
 
     public function testHandleReturnsJsonResponse(): void

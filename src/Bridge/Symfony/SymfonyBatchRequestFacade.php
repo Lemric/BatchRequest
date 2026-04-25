@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Bridge\Symfony;
 
-use Lemric\BatchRequest\Exception\{RateLimitException};
+use Lemric\BatchRequest\Exception\RateLimitException;
 use Lemric\BatchRequest\Handler\{BatchRequestHandler, ProcessBatchRequestCommand};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
 use Lemric\BatchRequest\Validator\{BatchRequestValidator, TransactionValidator};
@@ -121,10 +121,15 @@ final readonly class SymfonyBatchRequestFacade
 
     /**
      * Creates an error response in the expected format.
+     *
+     * The body keeps the legacy `{result, errors[]}` envelope for backward
+     * compatibility, while the response is served as a RFC 7807 problem
+     * document (`Content-Type: application/problem+json`) so that HTTP
+     * clients can dispatch on media type.
      */
     private function createErrorResponse(string $message, int $status, string $type): JsonResponse
     {
-        return new JsonResponse(
+        $response = new JsonResponse(
             [
                 'result' => 'error',
                 'errors' => [
@@ -136,6 +141,9 @@ final readonly class SymfonyBatchRequestFacade
             ],
             $status,
         );
+        $response->headers->set('Content-Type', 'application/problem+json');
+
+        return $response;
     }
 
     /**
