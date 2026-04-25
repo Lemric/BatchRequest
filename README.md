@@ -342,6 +342,34 @@ requests.
 > dev install). The runtime collector itself only depends on
 > `symfony/http-kernel`.
 
+#### Custom service definition
+
+If you re-declare `SymfonyBatchRequestFacade` in your own `services.php` /
+`services.yaml` (e.g. to bind a rate limiter), the bundle ships a
+`TraceableExecutorWiringPass` that automatically injects the traceable
+executor into your definition – you do **not** need to remember the
+`$transactionExecutor` argument. Example that *just works*:
+
+```php
+// config/services.php
+return static function (ContainerConfigurator $container): void {
+    $services = $container->services()
+        ->defaults()->autowire(false)->autoconfigure(false);
+
+    $services->set(\Lemric\BatchRequest\Bridge\Symfony\SymfonyBatchRequestFacade::class)
+        ->args([
+            '$httpKernel'        => service('http_kernel'),
+            '$rateLimiterFactory'=> service('limiter.batch_request'),
+            '$logger'            => service('logger'),
+            '$maxBatchSize'      => '%env(int:BATCH_REQUEST_MAX_SIZE)%',
+        ]);
+};
+```
+
+To opt out of the trace integration for a single definition, set
+`$transactionExecutor` explicitly to a non-null reference (e.g. your
+own `SymfonyTransactionExecutor` service).
+
 #### 4. Disabling the integration in production
 
 The profiler services are only wired when `profiler` is `true` (or by

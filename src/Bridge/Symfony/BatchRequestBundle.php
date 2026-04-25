@@ -13,6 +13,9 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Bridge\Symfony;
 
 use Lemric\BatchRequest\Bridge\Symfony\DependencyInjection\BatchRequestExtension;
+use Lemric\BatchRequest\Bridge\Symfony\DependencyInjection\Compiler\TraceableExecutorWiringPass;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
 use Symfony\Component\HttpKernel\Bundle\Bundle;
 
@@ -25,6 +28,16 @@ use Symfony\Component\HttpKernel\Bundle\Bundle;
  */
 final class BatchRequestBundle extends Bundle
 {
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+
+        // Runs after extension load so it can patch user-defined
+        // SymfonyBatchRequestFacade definitions that omit the traceable
+        // executor argument.
+        $container->addCompilerPass(new TraceableExecutorWiringPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION);
+    }
+
     public function getContainerExtension(): ?ExtensionInterface
     {
         if (null === $this->extension) {
