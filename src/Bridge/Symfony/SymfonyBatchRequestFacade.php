@@ -12,8 +12,8 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Bridge\Symfony;
 
-use Lemric\BatchRequest\Exception\RateLimitException;
-use Lemric\BatchRequest\Handler\{BatchRequestHandler, ProcessBatchRequestCommand};
+use Lemric\BatchRequest\Exception\{RateLimitException};
+use Lemric\BatchRequest\Handler\{BatchRequestHandler, FiberExecutionStrategy, ProcessBatchRequestCommand};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
 use Lemric\BatchRequest\Validator\{BatchRequestValidator, TransactionValidator};
 use Psr\Log\{LoggerInterface, NullLogger};
@@ -21,37 +21,55 @@ use Symfony\Component\HttpFoundation\{JsonResponse, Request, Response};
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Throwable;
-use const JSON_THROW_ON_ERROR;
+use function preg_replace;
+use function strlen;
+use function substr;
 
 /**
  * Symfony facade for batch request processing.
- *
- * This class provides backward compatibility with the original API
- * while using the new architecture internally.
  */
 final readonly class SymfonyBatchRequestFacade
 {
+    private const TRACE_MAX_LENGTH = 4096;
+
+    private const SECRET_REDACT_REGEX = '/(authorization|password|token|secret|api[_-]?key)\s*[:=]\s*\S+/i';
+
     private BatchRequestHandler $handler;
 
     private JsonBatchRequestParser $parser;
 
+    /**
+     * @param array<int, string> $forwardedHeadersWhitelist Lower-case parent-request headers safe to propagate to sub-requests.
+     */
     public function __construct(
         private HttpKernelInterface $httpKernel,
         private ?RateLimiterFactory $rateLimiterFactory = null,
         private ?LoggerInterface $logger = null,
         private int $maxBatchSize = 50,
+        int $maxConcurrency = 8,
+        int $maxTransactionContentLength = 262144,
+        array $forwardedHeadersWhitelist = [],
     ) {
         $executor = new SymfonyTransactionExecutor($this->httpKernel);
         $transactionValidator = new TransactionValidator();
-        $validator = new BatchRequestValidator($transactionValidator, $this->maxBatchSize);
+        $validator = new BatchRequestValidator(
+            $transactionValidator,
+            $this->maxBatchSize,
+            $maxTransactionContentLength,
+        );
 
         $this->handler = new BatchRequestHandler(
             $executor,
             $validator,
             $this->logger ?? new NullLogger(),
+            new FiberExecutionStrategy(),
+            $maxConcurrency,
         );
 
-        $this->parser = new JsonBatchRequestParser();
+        $this->parser = new JsonBatchRequestParser(
+            maxTransactionContentLength: $maxTransactionContentLength,
+            forwardedHeadersWhitelist: $forwardedHeadersWhitelist,
+        );
     }
 
     /**
@@ -60,16 +78,16 @@ final readonly class SymfonyBatchRequestFacade
     public function handle(Request $request): Response
     {
         try {
-            $this->checkRateLimit($request);
-
             $context = $this->extractContext($request);
             $batchRequest = $this->parser->parse($request->getContent(), $context);
+
+            $this->checkRateLimit($request, $batchRequest->count());
 
             $command = new ProcessBatchRequestCommand($batchRequest);
             $batchResponse = $this->handler->handle($command);
 
             return $this->createJsonResponse($batchResponse->toArray());
-        } catch (RateLimitException $e) {
+        } catch (RateLimitException) {
             return $this->createErrorResponse(
                 'Too many requests',
                 Response::HTTP_TOO_MANY_REQUESTS,
@@ -87,32 +105,18 @@ final readonly class SymfonyBatchRequestFacade
     }
 
     /**
-     * Checks rate limit if RateLimiterFactory is configured.
+     * Checks rate limit using the already-parsed transaction count
+     * (single-pass: no second JSON decode). Token consumption is
+     * proportional to batch size.
      */
-    private function checkRateLimit(Request $request): void
+    private function checkRateLimit(Request $request, int $transactionCount): void
     {
         if (null === $this->rateLimiterFactory) {
             return;
         }
 
         $limiter = $this->rateLimiterFactory->create($request->getClientIp() ?? 'unknown');
-
-        $transactionCount = 1;
-        try {
-            $decoded = json_decode(
-                $request->getContent(),
-                true,
-                32,
-                JSON_THROW_ON_ERROR,
-            );
-            if (is_array($decoded)) {
-                $transactionCount = max(1, count($decoded));
-            }
-        } catch (Throwable) {
-            // keep default of 1
-        }
-
-        $limit = $limiter->consume($transactionCount);
+        $limit = $limiter->consume(max(1, $transactionCount));
 
         if (!$limit->isAccepted()) {
             throw new RateLimitException('Rate limit exceeded', $limit->getRetryAfter()->getTimestamp());
@@ -121,11 +125,6 @@ final readonly class SymfonyBatchRequestFacade
 
     /**
      * Creates an error response in the expected format.
-     *
-     * The body keeps the legacy `{result, errors[]}` envelope for backward
-     * compatibility, while the response is served as a RFC 7807 problem
-     * document (`Content-Type: application/problem+json`) so that HTTP
-     * clients can dispatch on media type.
      */
     private function createErrorResponse(string $message, int $status, string $type): JsonResponse
     {
@@ -147,8 +146,6 @@ final readonly class SymfonyBatchRequestFacade
     }
 
     /**
-     * Creates a JSON response from batch response data.
-     *
      * @param array<int, array{code: int, body: mixed, headers?: array<string, string>}> $data
      */
     private function createJsonResponse(array $data): JsonResponse
@@ -179,10 +176,18 @@ final readonly class SymfonyBatchRequestFacade
 
     private function logError(Throwable $e): void
     {
-        ($this->logger ?? new NullLogger())->error('Batch request processing failed', [
+        $logger = $this->logger ?? new NullLogger();
+
+        $trace = $e->getTraceAsString();
+        if (strlen($trace) > self::TRACE_MAX_LENGTH) {
+            $trace = substr($trace, 0, self::TRACE_MAX_LENGTH).'…[truncated]';
+        }
+        $trace = (string) preg_replace(self::SECRET_REDACT_REGEX, '$1=***', $trace);
+
+        $logger->error('Batch request processing failed', [
             'exception' => get_class($e),
             'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
+            'trace' => $trace,
         ]);
     }
 }

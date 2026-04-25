@@ -18,8 +18,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 use function base64_encode;
 use function explode;
-use function file_get_contents;
-use function in_array;
+use function fclose;
+use function feof;
+use function fopen;
+use function fread;
 use function is_array;
 use function is_string;
 use function json_decode;
@@ -35,50 +37,64 @@ use const JSON_THROW_ON_ERROR;
 /**
  * Converts an HTTP Response into the batch sub-response shape.
  *
- * Works for **both** Symfony and Laravel: `Illuminate\Http\Response`
- * and `Illuminate\Http\JsonResponse` extend their Symfony counterparts,
- * and Laravel reuses Symfony's `BinaryFileResponse` / `StreamedResponse`
- * directly (it does not ship its own). The Symfony type-hint therefore
- * accepts every realistic Laravel response object as well, which is why
- * this formatter lives in the framework-agnostic `Bridge` namespace
- * rather than under `Bridge\Symfony` or `Bridge\Laravel`.
- *
- * Handles three response classes:
- *  - JSON (`application/json`, `text/json`, `* /* +json` per RFC 6839 §3.1)
- *    is decoded into an `array` `body`.
- *  - Textual responses (`text/*`, `application/xml`, `application/*+xml`,
- *    `application/javascript`, etc.) are passed through as a UTF-8 string
- *    `body`.
- *  - Anything else is treated as binary: the body is base64-encoded and
- *    the marker `body_encoding => 'base64'` is added so the client can
- *    decode it. This is required because the outer batch envelope is
- *    serialised via `JsonResponse`/`json_encode` which rejects non-UTF-8
- *    payloads.
- *
- * `BinaryFileResponse` and `StreamedResponse` (whose `getContent()`
- * returns `false`) are materialised explicitly so file/stream payloads
- * are not silently dropped.
- *
  * @internal
  */
 final class ResponseFormatter
 {
     /**
+     * Read chunk size for streaming binary responses. Multiple of 3 so
+     * that base64 encoding can be applied per-chunk without padding
+     * artefacts (each 3 bytes encode to 4 base64 chars).
+     */
+    private const BINARY_CHUNK_SIZE = 8190;
+
+    /**
      * Media types that carry text payloads but are not JSON.
+     *
+     * O(1) lookup via flipped map.
+     *
+     * @var array<string, true>
      */
     private const TEXT_MEDIA_TYPES = [
-        'application/xml',
-        'application/xhtml+xml',
-        'application/javascript',
-        'application/ecmascript',
-        'application/x-javascript',
-        'application/x-www-form-urlencoded',
-        'application/graphql',
-        'application/yaml',
-        'application/x-yaml',
-        'application/sql',
-        'image/svg+xml',
+        'application/xml' => true,
+        'application/xhtml+xml' => true,
+        'application/javascript' => true,
+        'application/ecmascript' => true,
+        'application/x-javascript' => true,
+        'application/x-www-form-urlencoded' => true,
+        'application/graphql' => true,
+        'application/yaml' => true,
+        'application/x-yaml' => true,
+        'application/sql' => true,
+        'image/svg+xml' => true,
     ];
+
+    /**
+     * Headers stripped from sub-responses to prevent leaking internal
+     * session / debugging metadata into the consolidated batch envelope.
+     *
+     * @var array<string, true>
+     */
+    private const STRIPPED_HEADERS = [
+        'set-cookie' => true,
+        'authorization' => true,
+        'proxy-authenticate' => true,
+        'proxy-authorization' => true,
+        'server' => true,
+        'x-powered-by' => true,
+    ];
+
+    /**
+     * Pre-compiled regex (single backtrack) for detecting any JSON
+     * structured-syntax suffix per RFC 6839 §3.1.
+     */
+    private const JSON_SUFFIX_REGEX = '~^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.-]+\+json$~';
+
+    /**
+     * Pre-compiled regex for `application/*+xml` structured-syntax
+     * suffix (RFC 7303).
+     */
+    private const XML_SUFFIX_REGEX = '~^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.-]+\+xml$~';
 
     /**
      * Formats a response into the batch sub-response shape.
@@ -88,7 +104,8 @@ final class ResponseFormatter
     public function format(Response $response): array
     {
         $contentType = (string) ($response->headers->get('Content-Type') ?? '');
-        $rawBody = $this->materialiseBody($response);
+        $isBinaryStream = false;
+        $rawBody = $this->materialiseBody($response, $isBinaryStream);
 
         $result = [
             'code' => $response->getStatusCode() ?: Response::HTTP_OK,
@@ -96,7 +113,7 @@ final class ResponseFormatter
             'headers' => $this->extractHeaders($response),
         ];
 
-        if ('' === $rawBody) {
+        if ('' === $rawBody && !$isBinaryStream) {
             return $result;
         }
 
@@ -109,9 +126,7 @@ final class ResponseFormatter
                     return $result;
                 }
             } catch (Throwable) {
-                // Malformed JSON: keep as raw string. The server claimed JSON,
-                // so the payload is expected to be UTF-8 text — do not
-                // base64-encode it.
+                // Malformed JSON: keep as raw string.
             }
 
             return $result;
@@ -121,9 +136,12 @@ final class ResponseFormatter
             return $result;
         }
 
-        // Treat everything else as binary so the batch envelope (which is
-        // itself JSON-encoded) cannot be corrupted by non-UTF-8 bytes.
-        $result['body'] = base64_encode($rawBody);
+        // Binary: payload must be base64 to survive the JSON envelope.
+        // Streaming materialiser may already have produced a base64
+        // string; only encode otherwise.
+        if (!$isBinaryStream) {
+            $result['body'] = base64_encode($rawBody);
+        }
         $result['body_encoding'] = 'base64';
 
         return $result;
@@ -136,11 +154,11 @@ final class ResponseFormatter
     {
         $headers = [];
         foreach ($response->headers->all() as $name => $values) {
-            if (is_array($values)) {
-                $headers[$name] = (string) end($values);
-            } else {
-                $headers[$name] = (string) $values;
+            if (isset(self::STRIPPED_HEADERS[strtolower((string) $name)])) {
+                continue;
             }
+            $count = count($values);
+            $headers[$name] = 0 === $count ? '' : (string) $values[$count - 1];
         }
 
         return $headers;
@@ -148,8 +166,7 @@ final class ResponseFormatter
 
     /**
      * RFC 6838/6839: matches `application/json`, `text/json` and any
-     * `+json` structured-syntax suffix; ignores parameters such as
-     * charset.
+     * `+json` structured-syntax suffix; ignores parameters such as charset.
      */
     private function isJsonContentType(string $contentType): bool
     {
@@ -159,15 +176,12 @@ final class ResponseFormatter
             return true;
         }
 
-        return 1 === preg_match('~^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.-]+\+json$~', $mediaType);
+        return 1 === preg_match(self::JSON_SUFFIX_REGEX, $mediaType);
     }
 
     /**
      * Returns true for media types whose payload is UTF-8 text and can
      * be safely embedded in the JSON batch envelope as a string.
-     *
-     * Empty/unknown content types are treated as binary (false) so that
-     * misconfigured backends don't corrupt the envelope.
      */
     private function isTextContentType(string $contentType): bool
     {
@@ -181,26 +195,48 @@ final class ResponseFormatter
             return true;
         }
 
-        if (in_array($mediaType, self::TEXT_MEDIA_TYPES, true)) {
+        if (isset(self::TEXT_MEDIA_TYPES[$mediaType])) {
             return true;
         }
 
-        // application/*+xml structured-syntax suffix (RFC 7303).
-        return 1 === preg_match('~^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.-]+\+xml$~', $mediaType);
+        return 1 === preg_match(self::XML_SUFFIX_REGEX, $mediaType);
     }
 
     /**
-     * Materialises the response body into a string, including special
-     * cases (`BinaryFileResponse`, `StreamedResponse`) where
-     * `getContent()` returns `false`.
+     * Materialises the response body into a string. For
+     * `BinaryFileResponse` performs **chunked base64 encoding**
+     * directly from disk so peak RAM ≈ chunk size (8 KiB) instead of
+     * the full file size. The caller is informed via the by-ref
+     * `$isBinaryStream` flag that the returned string is already
+     * base64-encoded and must not be encoded again.
      */
-    private function materialiseBody(Response $response): string
+    private function materialiseBody(Response $response, bool &$isBinaryStream): string
     {
+        $isBinaryStream = false;
+
         if ($response instanceof BinaryFileResponse) {
             $path = $response->getFile()->getPathname();
-            $contents = @file_get_contents($path);
+            $handle = @fopen($path, 'rb');
+            if (false === $handle) {
+                return '';
+            }
 
-            return false === $contents ? '' : $contents;
+            $encoded = '';
+            try {
+                while (!feof($handle)) {
+                    $chunk = fread($handle, self::BINARY_CHUNK_SIZE);
+                    if (false === $chunk || '' === $chunk) {
+                        break;
+                    }
+                    $encoded .= base64_encode($chunk);
+                }
+            } finally {
+                fclose($handle);
+            }
+
+            $isBinaryStream = true;
+
+            return $encoded;
         }
 
         if ($response instanceof StreamedResponse) {

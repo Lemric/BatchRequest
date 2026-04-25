@@ -12,17 +12,20 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Parser;
 
+use Generator;
 use JsonException;
 use Lemric\BatchRequest\{BatchRequestInterface, Transaction};
 use Lemric\BatchRequest\Exception\ParseException;
 use Lemric\BatchRequest\Model\BatchRequest;
-use function array_map;
 use function explode;
-use function in_array;
 use function is_array;
+use function is_string;
+use function iterator_to_array;
 use function json_decode;
 use function parse_str;
 use function str_contains;
+use function strlen;
+use function strtolower;
 use const JSON_THROW_ON_ERROR;
 
 /**
@@ -36,34 +39,115 @@ final readonly class JsonBatchRequestParser implements ParserInterface
     private const DEFAULT_MAX_CONTENT_LENGTH = 5 * 1024 * 1024;
 
     /**
+     * Maximum size in bytes of a single transaction body (256 KiB).
+     */
+    private const DEFAULT_MAX_TRANSACTION_CONTENT_LENGTH = 262144;
+
+    /**
      * Maximum JSON nesting depth.
      */
     private const MAX_JSON_DEPTH = 32;
 
     /**
-     * Headers that MUST NOT be forwarded from the parent request to sub-requests.
+     * Maximum number of fields produced by parse_str (defeats array bombs).
+     */
+    private const MAX_PARSE_STR_FIELDS = 1000;
+
+    /**
+     * Headers that MUST NOT be forwarded from the parent request to
+     * sub-requests under any circumstance (security-critical).
+     *
+     * Stored as a flipped map for O(1) `isset` lookup; lookups are
+     * always performed against `strtolower($name)`.
+     *
+     * @var array<string, true>
      */
     private const SENSITIVE_CONTEXT_HEADERS = [
-        'host',
-        'x-forwarded-for',
-        'x-forwarded-host',
-        'x-forwarded-proto',
-        'x-forwarded-port',
-        'x-real-ip',
-        'forwarded',
-        'connection',
-        'keep-alive',
-        'proxy-authenticate',
-        'proxy-authorization',
-        'te',
-        'trailer',
-        'transfer-encoding',
-        'upgrade',
+        'host' => true,
+        'x-forwarded-for' => true,
+        'x-forwarded-host' => true,
+        'x-forwarded-proto' => true,
+        'x-forwarded-port' => true,
+        'x-real-ip' => true,
+        'forwarded' => true,
+        'connection' => true,
+        'keep-alive' => true,
+        'proxy-authenticate' => true,
+        'proxy-authorization' => true,
+        'te' => true,
+        'trailer' => true,
+        'transfer-encoding' => true,
+        'upgrade' => true,
+        // Authentication/session: never inherit from parent — sub-requests
+        // declare their own credentials via the top-level `authorization`
+        // payload field or per-transaction `headers`.
+        'cookie' => true,
+        'set-cookie' => true,
+        'authorization' => true,
+        'x-csrf-token' => true,
     ];
 
+    /**
+     * Default whitelist of parent-request headers that may be safely
+     * propagated into sub-requests when the caller does not override.
+     *
+     * @var array<string, true>
+     */
+    private const DEFAULT_FORWARDED_HEADERS = [
+        'accept' => true,
+        'accept-language' => true,
+        'content-type' => true,
+        'user-agent' => true,
+    ];
+
+    /**
+     * Whitelist of $_SERVER keys safe to propagate to a sub-request.
+     * `HTTP_*` entries are intentionally excluded — they would
+     * shadow/duplicate header forwarding and may carry secrets.
+     *
+     * @var array<string, true>
+     */
+    private const ALLOWED_SERVER_VARS = [
+        'REMOTE_ADDR' => true,
+        'REMOTE_PORT' => true,
+        'SERVER_NAME' => true,
+        'SERVER_PORT' => true,
+        'SERVER_PROTOCOL' => true,
+        'REQUEST_METHOD' => true,
+        'REQUEST_SCHEME' => true,
+        'REQUEST_TIME' => true,
+        'REQUEST_TIME_FLOAT' => true,
+        'HTTPS' => true,
+    ];
+
+    /**
+     * @var array<string, true>
+     */
+    private array $forwardedHeadersMap;
+
+    /**
+     * @param array<int, string> $forwardedHeadersWhitelist Lower-case header names allowed to flow from parent context to sub-requests.
+     */
     public function __construct(
         private int $maxContentLength = self::DEFAULT_MAX_CONTENT_LENGTH,
+        private int $maxTransactionContentLength = self::DEFAULT_MAX_TRANSACTION_CONTENT_LENGTH,
+        array $forwardedHeadersWhitelist = [],
     ) {
+        if ([] === $forwardedHeadersWhitelist) {
+            $this->forwardedHeadersMap = self::DEFAULT_FORWARDED_HEADERS;
+
+            return;
+        }
+
+        $map = [];
+        foreach ($forwardedHeadersWhitelist as $name) {
+            $key = strtolower((string) $name);
+            if ('' === $key || isset(self::SENSITIVE_CONTEXT_HEADERS[$key])) {
+                continue;
+            }
+            $map[$key] = true;
+        }
+        $this->forwardedHeadersMap = $map;
     }
 
     public function parse(string $content, array $context = []): BatchRequestInterface
@@ -72,7 +156,9 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             throw ParseException::malformedRequest('Empty content');
         }
 
-        if (mb_strlen($content) > $this->maxContentLength) {
+        // Byte-accurate guard (mb_strlen counts characters, allowing
+        // larger payloads through when multi-byte chars are present).
+        if (strlen($content) > $this->maxContentLength) {
             throw ParseException::malformedRequest(sprintf('Payload exceeds %d bytes', $this->maxContentLength));
         }
 
@@ -86,13 +172,15 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             throw ParseException::malformedRequest('Root element must be an array');
         }
 
-        $transactions = [];
-        foreach ($data as $item) {
-            if (is_array($item)) {
-                /* @var array<string, mixed> $item */
-                $transactions[] = $this->parseTransaction($item, $context);
-            }
-        }
+        $serverVars = $this->extractServerVariables($context);
+        $cookies = $this->extractCookies($context);
+        $contextHeaders = $this->extractContextHeaders($context);
+        $contextFiles = (array) ($context['files'] ?? []);
+
+        $transactions = iterator_to_array(
+            $this->yieldTransactions($data, $contextHeaders, $cookies, $contextFiles, $serverVars),
+            false,
+        );
 
         return new BatchRequest(
             transactions: $transactions,
@@ -104,34 +192,130 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
     public function supports(string $contentType): bool
     {
-        return in_array($contentType, ['application/json', 'text/json'], true);
+        return 'application/json' === $contentType || 'text/json' === $contentType;
+    }
+
+    /**
+     * @param array<int|string, mixed>            $data
+     * @param array<string, string|array<string>> $contextHeaders
+     * @param array<string, string>               $cookies
+     * @param array<string, mixed>                $contextFiles
+     * @param array<string, mixed>                $serverVars
+     *
+     * @return Generator<int, Transaction>
+     */
+    private function yieldTransactions(
+        array $data,
+        array $contextHeaders,
+        array $cookies,
+        array $contextFiles,
+        array $serverVars,
+    ): Generator {
+        foreach ($data as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            /* @var array<string, mixed> $item */
+            yield $this->parseTransaction($item, $contextHeaders, $cookies, $contextFiles, $serverVars);
+        }
+    }
+
+    /**
+     * Lower-cases and filters context headers through the configured
+     * whitelist, dropping anything in the sensitive list. Returns an
+     * array preserving the original (possibly mixed-case) header names
+     * for the first occurrence of each lower-cased key.
+     *
+     * @param array<string, mixed> $context
+     *
+     * @return array<string, string|array<string>>
+     */
+    private function extractContextHeaders(array $context): array
+    {
+        $raw = (array) ($context['headers'] ?? []);
+        if ([] === $raw) {
+            return [];
+        }
+
+        $allowed = $this->forwardedHeadersMap;
+        $sensitive = self::SENSITIVE_CONTEXT_HEADERS;
+
+        $result = [];
+        foreach ($raw as $key => $value) {
+            $name = (string) $key;
+            $lower = strtolower($name);
+            if (isset($sensitive[$lower]) || !isset($allowed[$lower])) {
+                continue;
+            }
+
+            if (is_array($value)) {
+                $stringified = [];
+                foreach ($value as $v) {
+                    $stringified[] = (string) $v;
+                }
+                $result[$name] = $stringified;
+
+                continue;
+            }
+
+            $result[$name] = (string) $value;
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     *
+     * @return array<string, string>
+     */
+    private function extractCookies(array $context): array
+    {
+        $raw = (array) ($context['cookies'] ?? []);
+        if ([] === $raw) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($raw as $key => $value) {
+            $result[(string) $key] = (string) $value;
+        }
+
+        return $result;
     }
 
     /**
      * Extracts files based on attached_files directive.
      *
      * @param array<string, mixed> $data
-     * @param array<string, mixed> $context
+     * @param array<string, mixed> $contextFiles
      *
      * @return array<string, mixed>
      */
-    private function extractFiles(array $data, array $context): array
+    private function extractFiles(array $data, array $contextFiles): array
     {
-        if (!isset($data['attached_files'])) {
+        if (!isset($data['attached_files']) || [] === $contextFiles) {
             return [];
         }
 
-        $attachedFileNames = array_map(
-            'trim',
-            explode(',', (string) $data['attached_files']),
-        );
+        $names = explode(',', (string) $data['attached_files']);
+        $whitelist = [];
+        foreach ($names as $name) {
+            $trimmed = trim($name);
+            if ('' !== $trimmed) {
+                $whitelist[$trimmed] = true;
+            }
+        }
 
-        $allFiles = (array) ($context['files'] ?? []);
+        if ([] === $whitelist) {
+            return [];
+        }
 
         $result = [];
-        foreach ($allFiles as $key => $value) {
-            if (in_array((string) $key, $attachedFileNames, true)) {
-                $result[(string) $key] = $value;
+        foreach ($contextFiles as $key => $value) {
+            $name = (string) $key;
+            if (isset($whitelist[$name])) {
+                $result[$name] = $value;
             }
         }
 
@@ -150,19 +334,28 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         $parameters = [];
 
         if (isset($data['body'])) {
-            if (is_array($data['body'])) {
-                $parameters = $data['body'];
-            } elseif (is_string($data['body']) && '' !== $data['body']) {
-                $body = $data['body'];
-                $trimmed = mb_ltrim($body);
+            $body = $data['body'];
+            if (is_array($body)) {
+                $parameters = $body;
+            } elseif (is_string($body) && '' !== $body) {
+                $trimmed = ltrim($body);
                 if ('' !== $trimmed && '{' !== $trimmed[0] && '[' !== $trimmed[0]) {
-                    parse_str($body, $parsed);
+                    $parsed = $this->safeParseStr($body);
                     $parameters = $parsed;
                 }
             }
         }
 
         $queryParams = $this->extractQueryParameters($data);
+
+        if ([] === $queryParams) {
+            $result = [];
+            foreach ($parameters as $key => $value) {
+                $result[(string) $key] = $value;
+            }
+
+            return $result;
+        }
 
         $result = [];
         foreach ($queryParams as $key => $value) {
@@ -189,8 +382,8 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             return [];
         }
 
-        [$path, $queryString] = explode('?', $url, 2);
-        parse_str($queryString, $parameters);
+        $queryString = explode('?', $url, 2)[1];
+        $parameters = $this->safeParseStr($queryString);
 
         $result = [];
         foreach ($parameters as $key => $value) {
@@ -201,7 +394,26 @@ final readonly class JsonBatchRequestParser implements ParserInterface
     }
 
     /**
-     * Extracts server variables from context.
+     * `parse_str` wrapper with a hard cap on field count to defeat
+     * array-bomb DoS attempts.
+     *
+     * @return array<string, array<mixed>|string>
+     */
+    private function safeParseStr(string $input): array
+    {
+        parse_str($input, $parsed);
+
+        if (count($parsed) > self::MAX_PARSE_STR_FIELDS) {
+            throw ParseException::malformedRequest(
+                sprintf('Too many parameters (limit: %d)', self::MAX_PARSE_STR_FIELDS),
+            );
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * Extracts server variables from context using a strict whitelist.
      *
      * @param array<string, mixed> $context
      *
@@ -209,8 +421,16 @@ final readonly class JsonBatchRequestParser implements ParserInterface
      */
     private function extractServerVariables(array $context): array
     {
-        $server = (array) ($context['server'] ?? []);
-        $server['IS_INTERNAL'] = true;
+        $raw = (array) ($context['server'] ?? []);
+        $allowed = self::ALLOWED_SERVER_VARS;
+
+        $server = ['IS_INTERNAL' => true];
+        foreach ($raw as $key => $value) {
+            $name = (string) $key;
+            if (isset($allowed[$name])) {
+                $server[$name] = $value;
+            }
+        }
 
         return $server;
     }
@@ -232,35 +452,44 @@ final readonly class JsonBatchRequestParser implements ParserInterface
     }
 
     /**
-     * Merges headers from transaction and context.
+     * Merges per-transaction headers over filtered context headers and
+     * applies the optional top-level `authorization` field as a single
+     * `Authorization: <value>` header (overrides everything for the
+     * current transaction only).
      *
-     * @param array<string, mixed> $data
-     * @param array<string, mixed> $context
+     * @param array<string, mixed>                $data
+     * @param array<string, string|array<string>> $contextHeaders Already filtered through whitelist.
      *
      * @return array<string, string|array<string>>
      */
-    private function mergeHeaders(array $data, array $context): array
+    private function mergeHeaders(array $data, array $contextHeaders): array
     {
-        $headers = (array) ($context['headers'] ?? []);
-        $transactionHeaders = (array) ($data['headers'] ?? []);
+        $result = $contextHeaders;
 
-        $result = [];
-        foreach ($headers as $key => $value) {
-            if (in_array(mb_strtolower((string) $key), self::SENSITIVE_CONTEXT_HEADERS, true)) {
+        $transactionHeaders = (array) ($data['headers'] ?? []);
+        foreach ($transactionHeaders as $key => $value) {
+            $name = (string) $key;
+            if (is_array($value)) {
+                $stringified = [];
+                foreach ($value as $v) {
+                    $stringified[] = (string) $v;
+                }
+                $result[$name] = $stringified;
+
                 continue;
             }
-            if (is_array($value)) {
-                $result[(string) $key] = $value;
-            } else {
-                $result[(string) $key] = (string) $value;
-            }
+            $result[$name] = (string) $value;
         }
-        foreach ($transactionHeaders as $key => $value) {
-            if (is_array($value)) {
-                $result[(string) $key] = $value;
-            } else {
-                $result[(string) $key] = (string) $value;
+
+        if (isset($data['authorization']) && is_string($data['authorization']) && '' !== $data['authorization']) {
+            // Drop any case-variant of an existing Authorization header
+            // before injecting the per-transaction credential.
+            foreach ($result as $existing => $_) {
+                if (0 === strcasecmp((string) $existing, 'Authorization')) {
+                    unset($result[$existing]);
+                }
             }
+            $result['Authorization'] = $data['authorization'];
         }
 
         return $result;
@@ -269,28 +498,37 @@ final readonly class JsonBatchRequestParser implements ParserInterface
     /**
      * Parses a single transaction from raw data.
      *
-     * @param array<string, mixed> $data
-     * @param array<string, mixed> $context
+     * @param array<string, mixed>                $data
+     * @param array<string, string|array<string>> $contextHeaders
+     * @param array<string, string>               $cookies
+     * @param array<string, mixed>                $contextFiles
+     * @param array<string, mixed>                $serverVars
      */
-    private function parseTransaction(array $data, array $context): Transaction
-    {
+    private function parseTransaction(
+        array $data,
+        array $contextHeaders,
+        array $cookies,
+        array $contextFiles,
+        array $serverVars,
+    ): Transaction {
         $parameters = $this->extractParameters($data);
         $content = $this->prepareContent($data, $parameters);
 
-        $cookies = [];
-        foreach ((array) ($context['cookies'] ?? []) as $key => $value) {
-            $cookies[(string) $key] = (string) $value;
+        if (strlen($content) > $this->maxTransactionContentLength) {
+            throw ParseException::malformedRequest(
+                sprintf('Transaction body exceeds %d bytes', $this->maxTransactionContentLength),
+            );
         }
 
         return new Transaction(
             method: (string) ($data['method'] ?? 'GET'),
             uri: $this->extractUri($data),
-            headers: $this->mergeHeaders($data, $context),
+            headers: $this->mergeHeaders($data, $contextHeaders),
             parameters: $parameters,
             content: $content,
             cookies: $cookies,
-            files: $this->extractFiles($data, $context),
-            serverVariables: $this->extractServerVariables($context),
+            files: $this->extractFiles($data, $contextFiles),
+            serverVariables: $serverVars,
         );
     }
 

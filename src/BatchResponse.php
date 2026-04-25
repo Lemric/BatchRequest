@@ -12,9 +12,6 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest;
 
-use function array_filter;
-use function count;
-
 /**
  * Immutable value object representing a batch response.
  *
@@ -50,10 +47,15 @@ final readonly class BatchResponse implements BatchResponseInterface
 
     public function getFailureCount(): int
     {
-        return count(array_filter(
-            $this->responses,
-            static fn (array $response): bool => ($response['code'] ?? 500) >= 400,
-        ));
+        $count = 0;
+        foreach ($this->responses as $response) {
+            /** @phpstan-ignore-next-line nullCoalesce.offset */
+            if (($response['code'] ?? 500) >= 400) {
+                ++$count;
+            }
+        }
+
+        return $count;
     }
 
     public function getResponse(int $index): ?array
@@ -69,6 +71,7 @@ final readonly class BatchResponse implements BatchResponseInterface
     public function isSuccessful(): bool
     {
         foreach ($this->responses as $response) {
+            /** @phpstan-ignore-next-line nullCoalesce.offset */
             $code = $response['code'] ?? 500;
             if ($code < 200 || $code >= 300) {
                 return false;

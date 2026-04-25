@@ -15,38 +15,60 @@ namespace Lemric\BatchRequest\Bridge\Laravel;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\{JsonResponse, Request};
 use Lemric\BatchRequest\Exception\{RateLimitException, ValidationException};
-use Lemric\BatchRequest\Handler\{BatchRequestHandler, ProcessBatchRequestCommand};
+use Lemric\BatchRequest\Handler\{BatchRequestHandler, FiberExecutionStrategy, ProcessBatchRequestCommand};
 use Lemric\BatchRequest\Parser\JsonBatchRequestParser;
 use Lemric\BatchRequest\Validator\{BatchRequestValidator, TransactionValidator};
 use Psr\Log\{LoggerInterface, NullLogger};
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
+use function preg_replace;
+use function strlen;
+use function substr;
 
 /**
  * Laravel facade for batch request processing.
  */
 final readonly class LaravelBatchRequestFacade
 {
+    private const TRACE_MAX_LENGTH = 4096;
+
+    private const SECRET_REDACT_REGEX = '/(authorization|password|token|secret|api[_-]?key)\s*[:=]\s*\S+/i';
+
     private BatchRequestHandler $handler;
 
     private JsonBatchRequestParser $parser;
 
+    /**
+     * @param array<int, string> $forwardedHeadersWhitelist Lower-case parent-request headers safe to propagate to sub-requests.
+     */
     public function __construct(
         private Kernel $kernel,
         private ?LoggerInterface $logger = null,
         private int $maxBatchSize = 50,
+        int $maxConcurrency = 8,
+        int $maxTransactionContentLength = 262144,
+        array $forwardedHeadersWhitelist = [],
     ) {
         $executor = new LaravelTransactionExecutor($this->kernel);
         $transactionValidator = new TransactionValidator();
-        $validator = new BatchRequestValidator($transactionValidator, $this->maxBatchSize);
+        $validator = new BatchRequestValidator(
+            $transactionValidator,
+            $this->maxBatchSize,
+            $maxTransactionContentLength,
+        );
 
         $this->handler = new BatchRequestHandler(
             $executor,
             $validator,
             $this->logger ?? new NullLogger(),
+            new FiberExecutionStrategy(),
+            $maxConcurrency,
         );
 
-        $this->parser = new JsonBatchRequestParser();
+        $this->parser = new JsonBatchRequestParser(
+            maxTransactionContentLength: $maxTransactionContentLength,
+            forwardedHeadersWhitelist: $forwardedHeadersWhitelist,
+        );
     }
 
     /**
@@ -62,7 +84,7 @@ final readonly class LaravelBatchRequestFacade
             $batchResponse = $this->handler->handle($command);
 
             return new JsonResponse($batchResponse->toArray());
-        } catch (RateLimitException $e) {
+        } catch (RateLimitException) {
             return $this->createErrorResponse(
                 'Too many requests',
                 Response::HTTP_TOO_MANY_REQUESTS,
@@ -85,14 +107,6 @@ final readonly class LaravelBatchRequestFacade
         }
     }
 
-    /**
-     * Creates an error response in the expected format.
-     *
-     * The body keeps the legacy `{result, errors[]}` envelope for backward
-     * compatibility, while the response is served as a RFC 7807 problem
-     * document (`Content-Type: application/problem+json`) so that HTTP
-     * clients can dispatch on media type.
-     */
     private function createErrorResponse(string $message, int $status, string $type): JsonResponse
     {
         $response = new JsonResponse(
@@ -113,8 +127,6 @@ final readonly class LaravelBatchRequestFacade
     }
 
     /**
-     * Extracts context from Laravel Request.
-     *
      * @return array<string, mixed>
      */
     private function extractContext(Request $request): array
@@ -132,10 +144,17 @@ final readonly class LaravelBatchRequestFacade
     private function logError(Throwable $e): void
     {
         $logger = $this->logger ?? new NullLogger();
+
+        $trace = $e->getTraceAsString();
+        if (strlen($trace) > self::TRACE_MAX_LENGTH) {
+            $trace = substr($trace, 0, self::TRACE_MAX_LENGTH).'…[truncated]';
+        }
+        $trace = (string) preg_replace(self::SECRET_REDACT_REGEX, '$1=***', $trace);
+
         $logger->error('Batch request processing failed', [
             'exception' => get_class($e),
             'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
+            'trace' => $trace,
         ]);
     }
 }

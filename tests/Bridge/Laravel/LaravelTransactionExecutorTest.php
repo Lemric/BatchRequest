@@ -253,7 +253,9 @@ class LaravelTransactionExecutorTest extends TestCase
         $this->assertEquals('application/json', $result['headers']['content-type']);
         $this->assertEquals('value1', $result['headers']['x-custom-1']);
         $this->assertEquals('value2', $result['headers']['x-custom-2']);
-        $this->assertStringContainsString('theme=dark', $result['headers']['set-cookie']); // Should contain the value
+        // Set-Cookie is intentionally stripped from sub-responses to
+        // prevent session/cookie leakage through the batch envelope.
+        $this->assertArrayNotHasKey('set-cookie', $result['headers']);
     }
 
     public function testExecuteRequestWithNonJsonResponse(): void
