@@ -152,4 +152,24 @@ final class TransactionTest extends TestCase
         $this->assertSame('/api/posts', $original->getUri());
         $this->assertSame('/api/users', $modified->getUri());
     }
+
+    public function testFromArrayWithEmptyBodyArrayProducesEmptyJsonObjectContent(): void
+    {
+        $transaction = Transaction::fromArray([
+            'method' => 'POST',
+            'relative_url' => '/api/posts',
+            'body' => [],
+        ]);
+
+        $this->assertSame('[]', $transaction->getContent());
+    }
+
+    public function testWithHeadersOverwritesSameKey(): void
+    {
+        $original = new Transaction('GET', '/api', ['Accept' => 'text/plain']);
+        $modified = $original->withHeaders(['Accept' => 'application/json']);
+
+        $this->assertSame(['Accept' => 'text/plain'], $original->getHeaders());
+        $this->assertSame(['Accept' => 'application/json'], $modified->getHeaders());
+    }
 }

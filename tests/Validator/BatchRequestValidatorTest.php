@@ -160,4 +160,51 @@ final class BatchRequestValidatorTest extends TestCase
         $validator->validate($batchRequest);
         $this->assertTrue(true);
     }
+
+    public function testValidateRejectsOversizedTransactionContent(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('exceeds limit');
+
+        $validator = new BatchRequestValidator(new TransactionValidator(), 10, 8);
+        $batchRequest = new BatchRequest([
+            new Transaction('POST', '/api/posts', content: str_repeat('a', 9)),
+        ]);
+
+        $validator->validate($batchRequest);
+    }
+
+    public function testValidateAcceptsTransactionContentAtExactLimit(): void
+    {
+        $validator = new BatchRequestValidator(new TransactionValidator(), 10, 8);
+        $batchRequest = new BatchRequest([
+            new Transaction('POST', '/api/posts', content: str_repeat('a', 8)),
+        ]);
+
+        $validator->validate($batchRequest);
+        $this->assertTrue(true);
+    }
+
+    public function testValidateRejectsPathTraversalInsideBatch(): void
+    {
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Path traversal');
+
+        $validator = new BatchRequestValidator(new TransactionValidator());
+        $validator->validate(new BatchRequest([
+            new Transaction('GET', '/api/../secret'),
+        ]));
+    }
+
+    public function testValidateDoesNotTreatIsInternalFalseAsRecursive(): void
+    {
+        $validator = new BatchRequestValidator(new TransactionValidator());
+        $batch = new BatchRequest(
+            [new Transaction('GET', '/api/posts')],
+            metadata: ['server' => ['IS_INTERNAL' => false]],
+        );
+
+        $validator->validate($batch);
+        $this->assertTrue(true);
+    }
 }

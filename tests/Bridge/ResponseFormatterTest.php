@@ -244,5 +244,45 @@ final class ResponseFormatterTest extends TestCase
         $this->assertSame('', $roundTrip[3]['body']);
         $this->assertSame(['e' => 1], $roundTrip[4]['body']);
     }
+
+    public function testJsonContentTypeIgnoresCharsetParameter(): void
+    {
+        $response = new Response('{"a":1}', 200, ['Content-Type' => 'application/json; charset=utf-8']);
+
+        $result = $this->formatter->format($response);
+
+        $this->assertSame(['a' => 1], $result['body']);
+        $this->assertArrayNotHasKey('body_encoding', $result);
+    }
+
+    public function testStripsSensitiveResponseHeaders(): void
+    {
+        $response = new Response('ok', 200, [
+            'Content-Type' => 'text/plain',
+            'Set-Cookie' => 'session=abc',
+            'Authorization' => 'Bearer x',
+            'Server' => 'nginx',
+            'X-Powered-By' => 'PHP',
+            'X-Request-Id' => 'req-1',
+        ]);
+
+        $result = $this->formatter->format($response);
+        $headers = array_change_key_case($result['headers'], CASE_LOWER);
+
+        $this->assertArrayNotHasKey('set-cookie', $headers);
+        $this->assertArrayNotHasKey('authorization', $headers);
+        $this->assertArrayNotHasKey('server', $headers);
+        $this->assertArrayNotHasKey('x-powered-by', $headers);
+        $this->assertSame('req-1', $headers['x-request-id']);
+    }
+
+    public function testJsonScalarBodyIsLeftAsRawString(): void
+    {
+        $response = new Response('true', 200, ['Content-Type' => 'application/json']);
+        $result = $this->formatter->format($response);
+
+        // Non-array JSON decodes are kept as the raw string body.
+        $this->assertSame('true', $result['body']);
+    }
 }
 

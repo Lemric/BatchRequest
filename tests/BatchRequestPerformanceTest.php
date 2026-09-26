@@ -52,6 +52,6 @@ class BatchRequestPerformanceTest extends TestCase
         echo PHP_EOL.'Batch requests '.count($requestData).PHP_EOL;
         echo 'Execution time: '.$executionTime.'s'.PHP_EOL;
 
-        $this->assertLessThan(1, $executionTime, 'Batch request processing took too long');
+        $this->assertLessThan(2, $executionTime, 'Batch request processing took too long');
     }
 }

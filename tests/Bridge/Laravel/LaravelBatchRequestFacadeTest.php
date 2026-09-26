@@ -222,4 +222,85 @@ class LaravelBatchRequestFacadeTest extends TestCase
         $this->assertArrayHasKey('headers', $data[0]);
         $this->assertEquals('test', $data[0]['headers']['x-custom-header']);
     }
+
+    public function testHandleEmptyBatchDocumentsValidationSwallowing(): void
+    {
+        // Empty envelope fails BatchRequestValidator, but the handler catches
+        // ValidationException and returns zero synthetic slots → HTTP 200 [].
+        $request = Request::create('/batch', 'POST', [], [], [], [], '[]');
+        $request->headers->set('Content-Type', 'application/json');
+
+        $this->kernel->expects($this->never())->method('handle');
+
+        $response = $this->facade->handle($request);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $response->getData(true));
+    }
+
+    public function testHandleRejectsPathTraversalAsSyntheticErrors(): void
+    {
+        $request = Request::create(
+            '/batch',
+            'POST',
+            [],
+            [],
+            [],
+            [],
+            json_encode([['method' => 'GET', 'relative_url' => '/api/../etc/passwd']]),
+        );
+
+        $this->kernel->expects($this->never())->method('handle');
+
+        $response = $this->facade->handle($request);
+        $data = $response->getData(true);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $data);
+        $this->assertSame(500, $data[0]['code']);
+        $this->assertStringContainsString('Path traversal', $data[0]['body']['error']['message']);
+    }
+
+    public function testHandlePartialSuccessKeepsSiblingResults(): void
+    {
+        $request = Request::create(
+            '/batch',
+            'POST',
+            [],
+            [],
+            [],
+            [],
+            json_encode([
+                ['method' => 'GET', 'relative_url' => '/ok'],
+                ['method' => 'GET', 'relative_url' => '/fail'],
+            ]),
+        );
+
+        $ok = new Response('{"ok":true}', 200, ['Content-Type' => 'application/json']);
+        $this->kernel->method('handle')->willReturnCallback(
+            static function (Request $sub) use ($ok): Response {
+                if ('/fail' === $sub->getPathInfo()) {
+                    throw new Exception('boom');
+                }
+
+                return $ok;
+            },
+        );
+
+        $data = $this->facade->handle($request)->getData(true);
+
+        $this->assertSame(200, $data[0]['code']);
+        $this->assertSame(['ok' => true], $data[0]['body']);
+        $this->assertSame(500, $data[1]['code']);
+        $this->assertSame('Internal server error', $data[1]['body']['error']['message']);
+    }
+
+    public function testHandleEmptyContentReturnsSystemError(): void
+    {
+        $request = Request::create('/batch', 'POST', [], [], [], [], '');
+        $response = $this->facade->handle($request);
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertSame('system_error', $response->getData(true)['errors'][0]['type']);
+    }
 }

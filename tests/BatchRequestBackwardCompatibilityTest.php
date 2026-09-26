@@ -57,7 +57,7 @@ final class BatchRequestBackwardCompatibilityTest extends TestCase
 
         $this->assertTrue($errorTriggered, 'Deprecation notice was not triggered');
         $this->assertStringContainsString('deprecated since version 2.0', $errorMessage);
-        $this->assertStringContainsString('will be removed in 3.1', $errorMessage);
+        $this->assertStringContainsString('will be removed in 3.2', $errorMessage);
     }
 
     public function testHandleMethod(): void

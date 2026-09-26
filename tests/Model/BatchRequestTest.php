@@ -158,4 +158,42 @@ final class BatchRequestTest extends TestCase
         $this->assertSame($transaction1, $modified->getTransactions()[0]);
         $this->assertSame($transaction3, $modified->getTransactions()[1]);
     }
+
+    public function testMapOnEmptyBatchReturnsEmptyArray(): void
+    {
+        $batchRequest = new BatchRequest([]);
+
+        $this->assertSame([], $batchRequest->map(static fn () => 'x'));
+    }
+
+    public function testWithMetadataOverwritesExistingKey(): void
+    {
+        $original = new BatchRequest([], false, '', ['key' => 'old', 'keep' => '1']);
+        $modified = $original->withMetadata(['key' => 'new']);
+
+        $this->assertSame(['key' => 'old', 'keep' => '1'], $original->getMetadata());
+        $this->assertSame(['key' => 'new', 'keep' => '1'], $modified->getMetadata());
+    }
+
+    public function testWithTransactionCanExtendBeyondCurrentLength(): void
+    {
+        $original = new BatchRequest([new Transaction('GET', '/a')]);
+        $modified = $original->withTransaction(2, new Transaction('GET', '/c'));
+
+        $this->assertCount(1, $original);
+        $transactions = $modified->getTransactions();
+        $this->assertArrayHasKey(0, $transactions);
+        $this->assertArrayNotHasKey(1, $transactions);
+        $this->assertArrayHasKey(2, $transactions);
+        $this->assertSame('/c', $transactions[2]->getUri());
+    }
+
+    public function testSingleTransactionBatch(): void
+    {
+        $batch = new BatchRequest([new Transaction('OPTIONS', '/api')]);
+
+        $this->assertFalse($batch->isEmpty());
+        $this->assertCount(1, $batch);
+        $this->assertSame(['OPTIONS'], $batch->map(static fn ($t) => $t->getMethod()));
+    }
 }

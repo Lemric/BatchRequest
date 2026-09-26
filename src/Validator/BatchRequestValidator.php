@@ -42,11 +42,16 @@ final readonly class BatchRequestValidator implements ValidatorInterface
             throw ValidationException::batchSizeExceeded($count, $this->maxBatchSize);
         }
 
-        // Defense-in-depth SSRF guard: a sub-request that itself targets
-        // the batch endpoint would arrive carrying IS_INTERNAL=true in
-        // its metadata. Reject recursive batches outright.
+        // Defense-in-depth SSRF guard: sub-requests created by this library
+        // always carry IS_INTERNAL=true in $_SERVER. A nested call back into
+        // the batch endpoint therefore arrives with that flag in metadata.
+        // Also honour an explicit is_recursive_batch metadata marker.
         $metadata = $batchRequest->getMetadata();
-        if (true === ($metadata['is_recursive_batch'] ?? false)) {
+        $server = $metadata['server'] ?? [];
+        if (
+            true === ($metadata['is_recursive_batch'] ?? false)
+            || true === ($server['IS_INTERNAL'] ?? false)
+        ) {
             throw ValidationException::invalidUrl('Recursive batch requests are not allowed');
         }
 

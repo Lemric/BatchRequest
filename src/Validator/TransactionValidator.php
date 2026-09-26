@@ -55,9 +55,9 @@ final readonly class TransactionValidator implements TransactionValidatorInterfa
     private const URI_DANGEROUS_CHARS_REGEX = '/[<>"\']/';
 
     /**
-     * Maximum percent-decode iterations to defeat double-encoding.
+     * Maximum percent-decode iterations to defeat multi-encoding bypasses.
      */
-    private const MAX_DECODE_ITERATIONS = 2;
+    private const MAX_DECODE_ITERATIONS = 5;
 
     public function validate(TransactionInterface $transaction): void
     {

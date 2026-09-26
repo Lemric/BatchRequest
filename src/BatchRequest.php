@@ -22,7 +22,7 @@ use const E_USER_DEPRECATED;
 /**
  * Backward compatibility wrapper for v2.x API.
  *
- * @deprecated Use SymfonyBatchRequestFacade instead. This class will be removed in v3.1.
+ * @deprecated Use SymfonyBatchRequestFacade instead. This class will be removed in v3.2.
  */
 final readonly class BatchRequest
 {
@@ -34,7 +34,7 @@ final readonly class BatchRequest
     ) {
         @trigger_error(
             sprintf(
-                'The "%s" class is deprecated since version 2.0 and will be removed in 3.1. '.
+                'The "%s" class is deprecated since version 2.0 and will be removed in 3.2. '.
                 'Use "%s" instead.',
                 self::class,
                 SymfonyBatchRequestFacade::class,

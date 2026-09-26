@@ -12,7 +12,6 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Parser;
 
-use Generator;
 use JsonException;
 use Lemric\BatchRequest\{BatchRequestInterface, Transaction};
 use Lemric\BatchRequest\Exception\ParseException;
@@ -20,7 +19,6 @@ use Lemric\BatchRequest\Model\BatchRequest;
 use function explode;
 use function is_array;
 use function is_string;
-use function iterator_to_array;
 use function json_decode;
 use function parse_str;
 use function str_contains;
@@ -141,7 +139,7 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         $map = [];
         foreach ($forwardedHeadersWhitelist as $name) {
-            $key = strtolower((string) $name);
+            $key = strtolower($name);
             if ('' === $key || isset(self::SENSITIVE_CONTEXT_HEADERS[$key])) {
                 continue;
             }
@@ -177,13 +175,8 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         $contextHeaders = $this->extractContextHeaders($context);
         $contextFiles = (array) ($context['files'] ?? []);
 
-        $transactions = iterator_to_array(
-            $this->yieldTransactions($data, $contextHeaders, $cookies, $contextFiles, $serverVars),
-            false,
-        );
-
         return new BatchRequest(
-            transactions: $transactions,
+            transactions: $this->buildTransactions($data, $contextHeaders, $cookies, $contextFiles, $serverVars),
             includeHeaders: (bool) ($context['include_headers'] ?? false),
             clientIdentifier: (string) ($context['client_identifier'] ?? ''),
             metadata: $context,
@@ -202,22 +195,25 @@ final readonly class JsonBatchRequestParser implements ParserInterface
      * @param array<string, mixed>                $contextFiles
      * @param array<string, mixed>                $serverVars
      *
-     * @return Generator<int, Transaction>
+     * @return list<Transaction>
      */
-    private function yieldTransactions(
+    private function buildTransactions(
         array $data,
         array $contextHeaders,
         array $cookies,
         array $contextFiles,
         array $serverVars,
-    ): Generator {
+    ): array {
+        $transactions = [];
         foreach ($data as $item) {
             if (!is_array($item)) {
                 continue;
             }
             /* @var array<string, mixed> $item */
-            yield $this->parseTransaction($item, $contextHeaders, $cookies, $contextFiles, $serverVars);
+            $transactions[] = $this->parseTransaction($item, $contextHeaders, $cookies, $contextFiles, $serverVars);
         }
+
+        return $transactions;
     }
 
     /**
@@ -311,15 +307,9 @@ final readonly class JsonBatchRequestParser implements ParserInterface
             return [];
         }
 
-        $result = [];
-        foreach ($contextFiles as $key => $value) {
-            $name = (string) $key;
-            if (isset($whitelist[$name])) {
-                $result[$name] = $value;
-            }
-        }
-
-        return $result;
+        return array_filter($contextFiles, function ($key) use ($whitelist) {
+            return isset($whitelist[$key]);
+        }, ARRAY_FILTER_USE_KEY);
     }
 
     /**
@@ -348,21 +338,20 @@ final readonly class JsonBatchRequestParser implements ParserInterface
 
         $queryParams = $this->extractQueryParameters($data);
 
+        $result = [];
         if ([] === $queryParams) {
-            $result = [];
             foreach ($parameters as $key => $value) {
-                $result[(string) $key] = $value;
+                $result[$key] = $value;
             }
 
             return $result;
         }
 
-        $result = [];
         foreach ($queryParams as $key => $value) {
-            $result[(string) $key] = $value;
+            $result[$key] = $value;
         }
         foreach ($parameters as $key => $value) {
-            $result[(string) $key] = $value;
+            $result[$key] = $value;
         }
 
         return $result;
@@ -385,25 +374,24 @@ final readonly class JsonBatchRequestParser implements ParserInterface
         $queryString = explode('?', $url, 2)[1];
         $parameters = $this->safeParseStr($queryString);
 
-        $result = [];
-        foreach ($parameters as $key => $value) {
-            $result[(string) $key] = $value;
-        }
-
-        return $result;
+        return array_map(function ($value) {
+            return $value;
+        }, $parameters);
     }
 
     /**
      * `parse_str` wrapper with a hard cap on field count to defeat
      * array-bomb DoS attempts.
      *
-     * @return array<string, array<mixed>|string>
+     * @return array<string, array|string>
      */
     private function safeParseStr(string $input): array
     {
         parse_str($input, $parsed);
 
-        if (count($parsed) > self::MAX_PARSE_STR_FIELDS) {
+        // Use >= so a bomb truncated by PHP's max_input_vars (often 1000)
+        // is still rejected instead of silently accepted at the ceiling.
+        if (count($parsed) >= self::MAX_PARSE_STR_FIELDS) {
             throw ParseException::malformedRequest(
                 sprintf('Too many parameters (limit: %d)', self::MAX_PARSE_STR_FIELDS),
             );

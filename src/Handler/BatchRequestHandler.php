@@ -13,13 +13,13 @@ declare(strict_types=1);
 namespace Lemric\BatchRequest\Handler;
 
 use Fiber;
-use Generator;
 use Lemric\BatchRequest\{BatchResponse, BatchResponseInterface, TransactionInterface};
 use Lemric\BatchRequest\Exception\ValidationException;
 use Lemric\BatchRequest\Validator\ValidatorInterface;
 use Psr\Log\{LoggerInterface, NullLogger};
 use Throwable;
 use function ksort;
+use function preg_replace;
 
 /**
  * Handles batch request processing with validation and execution.
@@ -27,6 +27,8 @@ use function ksort;
 final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
 {
     private const DEFAULT_MAX_CONCURRENCY = 8;
+
+    private const SECRET_REDACT_REGEX = '/(authorization|password|token|secret|api[_-]?key)\s*[:=]\s*\S+/i';
 
     private LoggerInterface $effectiveLogger;
 
@@ -77,7 +79,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
         $transactions = $batchRequest->getTransactions();
         $includeHeaders = $batchRequest->shouldIncludeHeaders();
 
-        $responses = iterator_to_array($this->executeAll($transactions, $includeHeaders), true);
+        $responses = $this->executeAll($transactions, $includeHeaders);
         ksort($responses);
         $responses = array_values($responses);
 
@@ -93,7 +95,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
     }
 
     /**
-     * Yields `[index => response]` for each transaction. When a strategy
+     * Returns `[index => response]` for each transaction. When a strategy
      * is configured and a contiguous read-only block can be parallelised,
      * uses Fibers with bounded concurrency; write operations are always
      * serialised to preserve causal ordering and avoid container-state
@@ -101,29 +103,35 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
      *
      * @param array<int, TransactionInterface> $transactions
      *
-     * @return Generator<int, array{code: int, body: mixed, headers?: array<string, string>}>
+     * @return array<int, array{code: int, body: mixed, headers?: array<string, string>}>
      */
-    private function executeAll(array $transactions, bool $includeHeaders): Generator
+    private function executeAll(array $transactions, bool $includeHeaders): array
     {
         if (null === $this->strategy || $this->maxConcurrency < 2) {
+            $responses = [];
             foreach ($transactions as $index => $transaction) {
-                yield $index => $this->executeOne($transaction, $index, $includeHeaders);
+                $responses[$index] = $this->executeOne($transaction, $index, $includeHeaders);
             }
 
-            return;
+            return $responses;
         }
 
+        $responses = [];
         foreach ($this->strategy->groupTransactions($transactions) as $group) {
             if (1 === count($group) || !$this->strategy->canExecuteInParallel($group)) {
                 foreach ($group as $index => $transaction) {
-                    yield $index => $this->executeOne($transaction, $index, $includeHeaders);
+                    $responses[$index] = $this->executeOne($transaction, $index, $includeHeaders);
                 }
 
                 continue;
             }
 
-            yield from $this->executeParallel($group, $includeHeaders);
+            foreach ($this->executeParallel($group, $includeHeaders) as $index => $response) {
+                $responses[$index] = $response;
+            }
         }
+
+        return $responses;
     }
 
     /**
@@ -133,9 +141,9 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
      *
      * @param array<int, TransactionInterface> $group Indexes preserved.
      *
-     * @return Generator<int, array{code: int, body: mixed, headers?: array<string, string>}>
+     * @return array<int, array{code: int, body: mixed, headers?: array<string, string>}>
      */
-    private function executeParallel(array $group, bool $includeHeaders): Generator
+    private function executeParallel(array $group, bool $includeHeaders): array
     {
         $pending = $group;
         $active = [];
@@ -188,9 +196,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
             }
         }
 
-        foreach ($results as $index => $response) {
-            yield $index => $response;
-        }
+        return $results;
     }
 
     /**
@@ -227,7 +233,7 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
             'index' => $index,
             'method' => $transaction->getMethod(),
             'uri' => $transaction->getUri(),
-            'error' => $e->getMessage(),
+            'error' => (string) preg_replace(self::SECRET_REDACT_REGEX, '$1=***', $e->getMessage()),
         ]);
 
         return [
@@ -235,7 +241,8 @@ final readonly class BatchRequestHandler implements BatchRequestHandlerInterface
             'body' => [
                 'error' => [
                     'type' => 'ExecutionException',
-                    'message' => $e->getMessage(),
+                    // Do not leak internal exception details to API clients.
+                    'message' => 'Internal server error',
                 ],
             ],
         ];

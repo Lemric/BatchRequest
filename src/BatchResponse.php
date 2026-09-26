@@ -49,7 +49,6 @@ final readonly class BatchResponse implements BatchResponseInterface
     {
         $count = 0;
         foreach ($this->responses as $response) {
-            /** @phpstan-ignore-next-line nullCoalesce.offset */
             if (($response['code'] ?? 500) >= 400) {
                 ++$count;
             }
@@ -71,7 +70,6 @@ final readonly class BatchResponse implements BatchResponseInterface
     public function isSuccessful(): bool
     {
         foreach ($this->responses as $response) {
-            /** @phpstan-ignore-next-line nullCoalesce.offset */
             $code = $response['code'] ?? 500;
             if ($code < 200 || $code >= 300) {
                 return false;
@@ -93,6 +91,9 @@ final readonly class BatchResponse implements BatchResponseInterface
      */
     public function withResponse(array $response): self
     {
-        return new self([...$this->responses, $response]);
+        $responses = $this->responses;
+        $responses[] = $response;
+
+        return new self($responses);
     }
 }

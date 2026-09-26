@@ -281,4 +281,87 @@ final class SymfonyBatchRequestFacadeTest extends TestCase
 
         $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
     }
+
+    public function testHandleEmptyBodyReturnsSystemError(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel->expects($this->never())->method('handle');
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
+        $response = $facade->handle(new Request([], [], [], [], [], [], ''));
+
+        $this->assertSame(Response::HTTP_INTERNAL_SERVER_ERROR, $response->getStatusCode());
+        $this->assertSame('application/problem+json', $response->headers->get('Content-Type'));
+        $data = json_decode($response->getContent(), true);
+        $this->assertSame('system_error', $data['errors'][0]['type']);
+    }
+
+    public function testHandleRedactsSecretsInLoggedMessages(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->once())
+            ->method('error')
+            ->with('Batch request processing failed', $this->callback(static function (array $context): bool {
+                return is_string($context['message'] ?? null)
+                    && !str_contains($context['message'], 'super-secret')
+                    && str_contains($context['message'], 'password=***');
+            }));
+
+        $factory = $this->createMock(RateLimiterFactory::class);
+        $factory->method('create')->willThrowException(
+            new RuntimeException('auth failed password=super-secret'),
+        );
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel, $factory, $logger);
+
+        $request = new Request([], [], [], [], [], ['REMOTE_ADDR' => '127.0.0.1'], json_encode([
+            ['method' => 'GET', 'relative_url' => '/api/posts'],
+        ]));
+
+        $facade->handle($request);
+    }
+
+    public function testHandlePathTraversalYieldsSyntheticSubErrorsNotTopLevel500(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel->expects($this->never())->method('handle');
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
+        $response = $facade->handle(new Request([], [], [], [], [], [], json_encode([
+            ['method' => 'GET', 'relative_url' => '/../secret'],
+        ])));
+
+        $this->assertSame(Response::HTTP_OK, $response->getStatusCode());
+        $data = json_decode($response->getContent(), true);
+        $this->assertSame(500, $data[0]['code']);
+        $this->assertStringContainsString('Path traversal', $data[0]['body']['error']['message']);
+    }
+
+    public function testHandleMixedSuccessAndHttpExceptionPreservesOrder(): void
+    {
+        $httpKernel = $this->createMock(HttpKernelInterface::class);
+        $httpKernel->method('handle')->willReturnCallback(
+            static function (Request $request) {
+                if ('/missing' === $request->getPathInfo()) {
+                    throw new NotFoundHttpException('gone');
+                }
+
+                return new Response('{"ok":true}', 200, ['Content-Type' => 'application/json']);
+            },
+        );
+
+        $facade = new SymfonyBatchRequestFacade($httpKernel);
+        $response = $facade->handle(new Request([], [], [], [], [], [], json_encode([
+            ['method' => 'GET', 'relative_url' => '/ok'],
+            ['method' => 'GET', 'relative_url' => '/missing'],
+            ['method' => 'GET', 'relative_url' => '/ok-again'],
+        ])));
+
+        $data = json_decode($response->getContent(), true);
+        $this->assertSame(200, $data[0]['code']);
+        $this->assertSame(404, $data[1]['code']);
+        $this->assertSame(200, $data[2]['code']);
+    }
 }

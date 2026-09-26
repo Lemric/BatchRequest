@@ -187,10 +187,11 @@ final readonly class SymfonyBatchRequestFacade
             $trace = substr($trace, 0, self::TRACE_MAX_LENGTH).'…[truncated]';
         }
         $trace = (string) preg_replace(self::SECRET_REDACT_REGEX, '$1=***', $trace);
+        $message = (string) preg_replace(self::SECRET_REDACT_REGEX, '$1=***', $e->getMessage());
 
         $logger->error('Batch request processing failed', [
             'exception' => get_class($e),
-            'message' => $e->getMessage(),
+            'message' => $message,
             'trace' => $trace,
         ]);
     }

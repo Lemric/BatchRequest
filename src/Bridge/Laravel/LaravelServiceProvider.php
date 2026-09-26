@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 namespace Lemric\BatchRequest\Bridge\Laravel;
 
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 
@@ -45,11 +46,13 @@ final class LaravelServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(LaravelBatchRequestFacade::class, function ($app) {
-            /* @var \Illuminate\Contracts\Container\Container $app */
+        $this->app->singleton(LaravelBatchRequestFacade::class, function (Container $app): LaravelBatchRequestFacade {
             $maxBatchSize = 50;
-            if (method_exists($app, 'bound') && $app->bound('config')) {
-                $maxBatchSize = (int) $app->make('config')->get('batch-request.max_batch_size', 50);
+            if ($app->bound('config')) {
+                $config = $app->make('config');
+                if (is_object($config) && method_exists($config, 'get')) {
+                    $maxBatchSize = (int) $config->get('batch-request.max_batch_size', 50);
+                }
             }
 
             return new LaravelBatchRequestFacade(

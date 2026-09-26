@@ -1,38 +1,48 @@
-name: Continuous Integration
+name: Snyk
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+      - master
   schedule:
-    - cron: 0 0 * * 0
+    - cron: '0 0 * * 0'
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  group: snyk-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 permissions:
-  actions: read
   contents: read
+  actions: read
   security-events: write
+
 jobs:
-  build:
+  snyk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@v4
+
       - uses: snyk/actions/setup@master
+
       - uses: shivammathur/setup-php@v2
         with:
-          coverage: "none"
+          coverage: none
           ini-values: date.timezone=UTC,memory_limit=-1,default_socket_timeout=10,session.gc_probability=0,apc.enable_cli=1,zend.assertions=1
-          extensions: "${{ env.extensions }}"
-          tools: flex
           php-version: '8.3'
+          tools: composer:v2
+
       - name: Install Dependencies
-        run: composer install --no-scripts
+        run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
+
       - uses: snyk/actions/php@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --sarif-file-output=snyk.sarif --all-projects
+
       - uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: snyk.sarif
