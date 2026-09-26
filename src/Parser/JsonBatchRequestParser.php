@@ -383,7 +383,7 @@ final readonly class JsonBatchRequestParser implements ParserInterface
      * `parse_str` wrapper with a hard cap on field count to defeat
      * array-bomb DoS attempts.
      *
-     * @return array<string, array|string>
+     * @return array<string, array<mixed>|string>
      */
     private function safeParseStr(string $input): array
     {
